@@ -1,5 +1,3 @@
-#![feature(clone_to_uninit, negative_impls, ptr_metadata)]
-
 use core::clone::CloneToUninit;
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
@@ -28,7 +26,7 @@ pub struct Arena<'a> {
     arena: ArenaInternal<'a>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct BrandedArenaId<T> {
     id: u32,
     _phantom: PhantomData<T>,
@@ -47,6 +45,17 @@ impl<T> Hash for BrandedArenaId<T> {
         self.id.hash(state);
     }
 }
+
+impl<T> Clone for BrandedArenaId<T> {
+    fn clone(&self) -> Self {
+        BrandedArenaId {
+            id: self.id,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<T> Copy for BrandedArenaId<T> {}
 
 impl<'a> ArenaInternal<'a> {
     fn new_backed<T, const B: usize>(backing: &'a mut [T; B], align: usize) -> ArenaInternal<'a> {
@@ -68,7 +77,7 @@ impl<'a> ArenaInternal<'a> {
     }
 
     fn new_virt(align: usize) -> ArenaInternal<'a> {
-        const MMAP_SIZE: usize = 1 << 40;
+        const MMAP_SIZE: usize = 1 << 32;
         let ptr = unsafe {
             mmap(
                 null_mut(),
