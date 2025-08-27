@@ -1,0 +1,69 @@
+use core::str::FromStr;
+
+use util::arena::Arena;
+use util::interner::{IdentifierId, StringInterner};
+use util::vec::ArenaVec;
+
+use crate::ast::*;
+
+grammar<'a, 'b, 'c, 'd>(arena: &'b Arena<'a>, interner: &mut StringInterner<'c, 'd>);
+
+pub Program: ProgramAST<'a> = {
+    FuncList => ProgramAST { funcs: <> },
+}
+
+FuncList: ArenaVec<'a, FunctionAST<'a>> = {
+    => ArenaVec::new(),
+    <mut l:FuncList> <x:Func> => {
+        l.push(arena, x);
+        l
+    }
+}
+
+Func: FunctionAST<'a> = {
+    "fn" <i:Iden> "(" <p:Params> ")" <b:Block> => FunctionAST { name: interner.intern(i), params: p, block: b },
+}
+
+Params: ArenaVec<'a, IdentifierId> = {
+    => ArenaVec::new(),
+    <x:Iden> => {
+        let mut v = ArenaVec::new();
+        v.push(arena, interner.intern(x));
+        v
+    },
+    <mut l:Params> "," <x:Iden?> => {
+        match x {
+            None => l,
+            Some(x) => { l.push(arena, interner.intern(x)); l }
+        }
+    }
+}
+
+Block: BlockAST<'a> = {
+    "{" <StmtList> "}" => BlockAST { stmts: <> },
+}
+
+StmtList: ArenaVec<'a, StatementAST<'a>> = {
+    => ArenaVec::new(),
+    <mut l:StmtList> <x:Stmt> => {
+        l.push(arena, x);
+        l
+    }
+}
+
+Stmt: StatementAST<'a> = {
+    Block => StatementAST::Block(<>),
+    <i:Iden> "=" <e:Expr> ";" => StatementAST::Assign(interner.intern(i), e),
+    "return" <e:Expr> ";" => StatementAST::Return(e),
+}
+
+Expr: ExpressionAST<'a> = {
+    #[precedence(level="0")]
+    Num => ExpressionAST::NumberLiteral(<>),
+    Iden => ExpressionAST::Variable(interner.intern(<>)),
+    #[precedence(level="1")] #[assoc(side="left")]
+    <lhs:Expr> "+" <rhs:Expr> => ExpressionAST::Add(arena.new(lhs), arena.new(rhs)),
+}
+
+Num: i64 = r"[0-9]+" => i64::from_str(<>).unwrap();
+Iden: &'input str = r"[a-zA-Z_][a-zA-Z0-9_]*" => <>;

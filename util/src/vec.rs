@@ -1,4 +1,5 @@
 use core::borrow::{Borrow, BorrowMut};
+use core::fmt::{Debug, Error, Formatter};
 use core::mem::take;
 use core::ops::Index;
 use core::ops::IndexMut;
@@ -11,7 +12,7 @@ pub struct ArenaVec<'a, T> {
     len: usize,
 }
 
-impl<'a, T: Clone + Default> ArenaVec<'a, T> {
+impl<'a, T> ArenaVec<'a, T> {
     pub fn new() -> Self {
         Self {
             contents: &mut [],
@@ -23,6 +24,12 @@ impl<'a, T: Clone + Default> ArenaVec<'a, T> {
         self.len
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl<'a, T: Default> ArenaVec<'a, T> {
     pub fn push(&mut self, arena: &Arena<'a>, x: T) {
         if self.len < self.contents.len() {
             self.contents[self.len] = x;
@@ -33,10 +40,9 @@ impl<'a, T: Clone + Default> ArenaVec<'a, T> {
                 } else {
                     self.contents.len() * 2
                 },
-                T::default(),
             );
             for i in 0..self.len {
-                new_contents[i] = self.contents[i].clone();
+                new_contents[i] = take(&mut self.contents[i]);
             }
             self.contents = new_contents;
             self.contents[self.len] = x;
@@ -89,6 +95,25 @@ impl<'a, T, I: SliceIndex<[T]>> Index<I> for ArenaVec<'a, T> {
 impl<'a, T, I: SliceIndex<[T]>> IndexMut<I> for ArenaVec<'a, T> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         IndexMut::index_mut(<ArenaVec<'_, T> as BorrowMut<[T]>>::borrow_mut(self), index)
+    }
+}
+
+impl<'a, T: Debug> Debug for ArenaVec<'a, T> {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(fmt, "[")?;
+        if !self.is_empty() {
+            write!(fmt, "{:?}", self[0])?;
+            for x in &self[1..] {
+                write!(fmt, ", {:?}", x)?;
+            }
+        }
+        write!(fmt, "]")
+    }
+}
+
+impl<'a, T> Default for ArenaVec<'a, T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

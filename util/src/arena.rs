@@ -205,7 +205,7 @@ impl<'a> Arena<'a> {
         }
     }
 
-    pub fn new_slice<'b, T: Clone>(&'b self, count: usize, x: T) -> &'a mut [T] {
+    pub fn new_slice<'b, T: Default>(&'b self, count: usize) -> &'a mut [T] {
         const {
             assert!(!needs_drop::<T>());
         }
@@ -215,7 +215,7 @@ impl<'a> Arena<'a> {
         unsafe {
             let ptr = self.arena.ptr.add(offset) as *mut T;
             for i in 0..count {
-                *ptr.add(i) = x.clone();
+                *ptr.add(i) = T::default();
             }
             slice::from_raw_parts_mut(ptr, count)
         }
@@ -396,7 +396,7 @@ mod tests {
         }
         let arena = Arena::new_virt();
         for _ in 0..(1 << 18) {
-            arena.new_slice::<LargeType>(10, LargeType::default());
+            arena.new_slice::<LargeType>(10);
         }
     }
 
@@ -406,10 +406,10 @@ mod tests {
         let arena1 = Arena::new_virt();
         let arena2 = Arena::new_virt();
         for _ in 0..(1 << 18) {
-            arena1.new_slice::<f32>(20, 0.0);
+            arena1.new_slice::<f32>(20);
         }
         for _ in 0..(1 << 18) {
-            arena2.new_slice::<f32>(8, 0.0);
+            arena2.new_slice::<f32>(8);
         }
     }
 
