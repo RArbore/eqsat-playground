@@ -29,7 +29,7 @@ mod tests {
         let string_arena = Arena::new_backed(&mut string_buf);
         let mut interner = StringInterner::new(&string_arena);
 
-        let mut buf: [u8; 1000] = [0; 1000];
+        let mut buf: [u8; 10000] = [0; 10000];
         let arena = Arena::new_backed(&mut buf);
 
         for program in get_example_imp_programs() {

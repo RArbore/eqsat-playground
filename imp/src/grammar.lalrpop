@@ -54,15 +54,50 @@ StmtList: ArenaVec<'a, StatementAST<'a>> = {
 Stmt: StatementAST<'a> = {
     Block => StatementAST::Block(<>),
     <i:Iden> "=" <e:Expr> ";" => StatementAST::Assign(interner.intern(i), e),
+    "if" <c:Expr> <tb:Block> <fb:("else" <Block>)?> => StatementAST::IfElse(c, tb, fb),
+    "while" <c:Expr> <b:Block> => StatementAST::While(c, b),
     "return" <e:Expr> ";" => StatementAST::Return(e),
 }
 
 Expr: ExpressionAST<'a> = {
     #[precedence(level="0")]
+    Atomic,
+    #[precedence(level="1")] #[assoc(side="left")]
+    <lhs:Expr> "*" <rhs:Expr> => ExpressionAST::Multiply(arena.new(lhs), arena.new(rhs)),
+    <lhs:Expr> "/" <rhs:Expr> => ExpressionAST::Divide(arena.new(lhs), arena.new(rhs)),
+    <lhs:Expr> "%" <rhs:Expr> => ExpressionAST::Modulo(arena.new(lhs), arena.new(rhs)),
+    #[precedence(level="2")] #[assoc(side="left")]
+    <lhs:Expr> "+" <rhs:Expr> => ExpressionAST::Add(arena.new(lhs), arena.new(rhs)),
+    <lhs:Expr> "-" <rhs:Expr> => ExpressionAST::Subtract(arena.new(lhs), arena.new(rhs)),
+    #[precedence(level="3")] #[assoc(side="left")]
+    <lhs:Expr> "==" <rhs:Expr> => ExpressionAST::EqualsEquals(arena.new(lhs), arena.new(rhs)),
+    <lhs:Expr> "!=" <rhs:Expr> => ExpressionAST::NotEquals(arena.new(lhs), arena.new(rhs)),
+    <lhs:Expr> "<" <rhs:Expr> => ExpressionAST::Less(arena.new(lhs), arena.new(rhs)),
+    <lhs:Expr> "<=" <rhs:Expr> => ExpressionAST::LessEquals(arena.new(lhs), arena.new(rhs)),
+    <lhs:Expr> ">" <rhs:Expr> => ExpressionAST::Greater(arena.new(lhs), arena.new(rhs)),
+    <lhs:Expr> ">=" <rhs:Expr> => ExpressionAST::GreaterEquals(arena.new(lhs), arena.new(rhs)),
+}
+
+Atomic: ExpressionAST<'a> = {
     Num => ExpressionAST::NumberLiteral(<>),
     Iden => ExpressionAST::Variable(interner.intern(<>)),
-    #[precedence(level="1")] #[assoc(side="left")]
-    <lhs:Expr> "+" <rhs:Expr> => ExpressionAST::Add(arena.new(lhs), arena.new(rhs)),
+    <i:Iden> "(" <a:Args> ")" => ExpressionAST::Call(interner.intern(i), a),
+    "(" <Expr> ")",
+}
+
+Args: ArenaVec<'a, ExpressionAST<'a>> = {
+    => ArenaVec::new(),
+    <x:Expr> => {
+        let mut v = ArenaVec::new();
+        v.push(arena, x);
+        v
+    },
+    <mut l:Args> "," <x:Expr?> => {
+        match x {
+            None => l,
+            Some(x) => { l.push(arena, x); l }
+        }
+    }
 }
 
 Num: i64 = r"[0-9]+" => i64::from_str(<>).unwrap();
