@@ -2,3 +2,4 @@
 
 pub mod arena;
 pub mod interner;
+pub mod vec;
