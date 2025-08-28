@@ -8,12 +8,10 @@ use core::slice;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use libc::{
     MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_NONE, PROT_READ, PROT_WRITE, mmap, mprotect,
-    munmap,
 };
 
 #[derive(Debug)]
 struct ArenaInternal<'a> {
-    orig_ptr: *mut u8,
     ptr: *mut u8,
     offset: AtomicUsize,
     max: usize,
@@ -67,7 +65,6 @@ impl<'a> ArenaInternal<'a> {
         let align_offset = ptr.align_offset(align);
         assert!(align_offset <= max, "alignment too large for backed arena");
         ArenaInternal {
-            orig_ptr: ptr,
             ptr: unsafe { ptr.add(align_offset) },
             offset: AtomicUsize::new(0),
             max,
@@ -95,7 +92,6 @@ impl<'a> ArenaInternal<'a> {
             "alignment too large for virtual arena"
         );
         ArenaInternal {
-            orig_ptr: ptr as *mut u8,
             ptr: unsafe { (ptr as *mut u8).add(align_offset) },
             offset: AtomicUsize::new(0),
             max: MMAP_SIZE,
@@ -150,15 +146,6 @@ impl<'a> ArenaInternal<'a> {
         }
 
         begin_offset
-    }
-}
-
-impl Drop for ArenaInternal<'_> {
-    fn drop(&mut self) {
-        if self.virt {
-            let code = unsafe { munmap(self.orig_ptr as _, self.max) };
-            assert_eq!(code, 0, "munmap failed in arena")
-        }
     }
 }
 
