@@ -24,6 +24,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn parse() {
         let mut string_buf: [u8; 100] = [0; 100];
         let string_arena = Arena::new_backed(&mut string_buf);

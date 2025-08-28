@@ -2,4 +2,5 @@
 
 pub mod arena;
 pub mod interner;
+pub mod union_find;
 pub mod vec;

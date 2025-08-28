@@ -245,6 +245,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn virtual_vec() {
         let mut vec = VirtualVec::new();
         assert_eq!(vec.as_ref(), &[]);
