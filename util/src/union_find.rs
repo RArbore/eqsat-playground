@@ -1,10 +1,12 @@
+use core::cell::Cell;
+
 use crate::vec::{VirtualVec};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClassId(u32);
 
 pub struct UnionFind {
-    vec: VirtualVec<ClassId>,
+    vec: VirtualVec<Cell<ClassId>>,
 }
 
 impl UnionFind {
@@ -17,11 +19,11 @@ impl UnionFind {
     pub fn makeset(&self) -> ClassId {
         let len = self.vec.len();
         let id = ClassId(len.try_into().unwrap());
-        self.vec.push(id);
+        self.vec.push(Cell::new(id));
         id
     }
 
-    pub fn find(&mut self, mut id: ClassId) -> ClassId {
+    pub fn find(&self, mut id: ClassId) -> ClassId {
         while id != self.parent(id) {
             self.set_parent(id, self.parent(self.parent(id)));
             id = self.parent(id);
@@ -31,15 +33,15 @@ impl UnionFind {
 
     #[inline]
     fn parent(&self, id: ClassId) -> ClassId {
-        self.vec[id.0 as usize]
+        self.vec[id.0 as usize].get()
     }
 
     #[inline]
-    fn set_parent(&mut self, id: ClassId, parent: ClassId) {
-        self.vec[id.0 as usize] = parent;
+    fn set_parent(&self, id: ClassId, parent: ClassId) {
+        self.vec[id.0 as usize].set(parent);
     }
 
-    pub fn merge(&mut self, mut x: ClassId, mut y: ClassId) -> ClassId {
+    pub fn merge(&self, mut x: ClassId, mut y: ClassId) -> ClassId {
         while self.parent(x) != self.parent(y) {
             if self.parent(x) > self.parent(y) {
                 if x == self.parent(x) {
@@ -70,7 +72,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn simple_uf() {
-        let mut uf = UnionFind::new();
+        let uf = UnionFind::new();
         let x = uf.makeset();
         let y = uf.makeset();
         let z = uf.makeset();
@@ -92,7 +94,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn complex_uf() {
-        let mut uf = UnionFind::new();
+        let uf = UnionFind::new();
         let mut ids = vec![];
         for _ in 0..1000000 {
             ids.push(uf.makeset());

@@ -169,6 +169,10 @@ impl<T> VirtualVec<T> {
             Some(x)
         }
     }
+
+    pub unsafe fn static_ref(&self, idx: usize) -> &'static T {
+        unsafe { &*(self.arena.ptr as *const T).add(idx) }
+    }
 }
 
 impl<T> AsRef<[T]> for VirtualVec<T> {
