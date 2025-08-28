@@ -10,10 +10,12 @@ use libc::{
     MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_NONE, PROT_READ, PROT_WRITE, mmap, mprotect,
 };
 
+pub(crate) const MCOMMIT_GRANULARITY: usize = 1 << 20;
+
 #[derive(Debug)]
-struct ArenaInternal<'a> {
-    ptr: *mut u8,
-    offset: AtomicUsize,
+pub(crate) struct ArenaInternal<'a> {
+    pub(crate) ptr: *mut u8,
+    pub(crate) offset: AtomicUsize,
     max: usize,
     virt: bool,
     _phantom: PhantomData<&'a ()>,
@@ -56,7 +58,7 @@ impl<T> Clone for BrandedArenaId<T> {
 impl<T> Copy for BrandedArenaId<T> {}
 
 impl<'a> ArenaInternal<'a> {
-    fn new_backed<T, const B: usize>(backing: &'a mut [T; B], align: usize) -> ArenaInternal<'a> {
+    pub(crate) fn new_backed<T, const B: usize>(backing: &'a mut [T; B], align: usize) -> ArenaInternal<'a> {
         const {
             assert!(!needs_drop::<T>());
         }
@@ -73,7 +75,7 @@ impl<'a> ArenaInternal<'a> {
         }
     }
 
-    fn new_virt(align: usize) -> ArenaInternal<'a> {
+    pub(crate) fn new_virt(align: usize) -> ArenaInternal<'static> {
         const MMAP_SIZE: usize = 1 << 32;
         let ptr = unsafe {
             mmap(
@@ -100,7 +102,7 @@ impl<'a> ArenaInternal<'a> {
         }
     }
 
-    fn realign<'b>(&'b mut self, align: usize) {
+    pub(crate) fn realign<'b>(&'b mut self, align: usize) {
         if align > 1 {
             #[allow(unused_assignments)]
             let mut aligned_offset = 0;
@@ -111,7 +113,7 @@ impl<'a> ArenaInternal<'a> {
         }
     }
 
-    fn alloc<'b>(&'b self, size: usize, align: Option<usize>) -> usize {
+    pub(crate) fn alloc<'b>(&'b self, size: usize, align: Option<usize>) -> usize {
         #[allow(unused_assignments)]
         let mut begin_offset = 0;
         let mut old_offset = self.offset.load(Ordering::Relaxed);
@@ -147,10 +149,20 @@ impl<'a> ArenaInternal<'a> {
 
         begin_offset
     }
+
+    pub(crate) unsafe fn alloc_assume_aligned<'b>(&'b self, size: usize) -> usize {
+        let old_offset = self.offset.fetch_add(size, Ordering::Relaxed);
+        assert!(old_offset + size <= self.max, "ran out of space in arena");
+        if self.virt {
+            unsafe {
+                commit_sections(self.ptr, old_offset, old_offset + size);
+            }
+        }
+        old_offset
+    }
 }
 
 unsafe fn commit_sections(ptr: *mut u8, old_offset: usize, new_offset: usize) {
-    const MCOMMIT_GRANULARITY: usize = 1 << 20;
     let prev_first_uncommited_section =
         (old_offset + MCOMMIT_GRANULARITY - 1) / MCOMMIT_GRANULARITY;
     let new_first_uncommited_section = (new_offset + MCOMMIT_GRANULARITY - 1) / MCOMMIT_GRANULARITY;
