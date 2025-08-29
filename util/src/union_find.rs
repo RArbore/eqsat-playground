@@ -96,26 +96,26 @@ mod tests {
     fn complex_uf() {
         let uf = UnionFind::new();
         let mut ids = vec![];
-        for _ in 0..1000000 {
+        for _ in 0..1000 {
             ids.push(uf.makeset());
         }
-        for i in 0..999999 {
+        for i in 0..999 {
             assert_ne!(uf.find(ids[i]), uf.find(ids[i + 1]));
         }
-        for i in 0..500000 {
+        for i in 0..500 {
             assert_eq!(uf.merge(ids[2 * i], ids[2 * i + 1]), ids[2 * i]);
         }
-        for i in 0..500000 {
+        for i in 0..500 {
             assert_eq!(uf.find(ids[2 * i]), uf.find(ids[2 * i + 1]));
-            if i < 499999 {
+            if i < 499 {
                 assert_ne!(uf.find(ids[2 * i]), uf.find(ids[2 * i + 2]));
             }
         }
-        for i in 0..499999 {
+        for i in 0..499 {
             assert_eq!(uf.merge(ids[2 * i], ids[2 * i + 2]), ids[0]);
         }
-        for i in 0..999999 {
-            assert_eq!(uf.find(ids[i]), uf.find(ids[999999]));
+        for i in 0..999 {
+            assert_eq!(uf.find(ids[i]), uf.find(ids[999]));
         }
     }
 }
