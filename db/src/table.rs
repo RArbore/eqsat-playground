@@ -62,7 +62,7 @@ impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
         }
     }
 
-    fn first_row(&self) -> Option<RowId> {
+    pub fn first_row(&self) -> Option<RowId> {
         for idx in 0..self.contents.len() {
             if self.contents[idx].0[0] != EMPTY {
                 return Some(RowId(idx as u32));
@@ -71,7 +71,7 @@ impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
         None
     }
 
-    fn next_row(&self, row: RowId) -> Option<RowId> {
+    pub fn next_row(&self, row: RowId) -> Option<RowId> {
         for idx in (row.0 as usize + 1)..self.contents.len() {
             if self.contents[idx].0[0] != EMPTY {
                 return Some(RowId(idx as u32));
@@ -80,11 +80,11 @@ impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
         None
     }
 
-    fn get_row(&self, row: RowId) -> ([u32; DET_COLS], [u32; DEP_COLS]) {
+    pub fn get_row(&self, row: RowId) -> ([u32; DET_COLS], [u32; DEP_COLS]) {
         self.contents[row.0 as usize]
     }
 
-    fn delete_row(&mut self, row: RowId) -> bool {
+    pub fn delete_row(&mut self, row: RowId) -> bool {
         if self
             .determine_map
             .remove(&self.contents[row.0 as usize].0)
@@ -98,8 +98,6 @@ impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
             false
         }
     }
-
-    pub fn rebuild(&mut self) {}
 }
 
 #[cfg(test)]

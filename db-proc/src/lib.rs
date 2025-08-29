@@ -38,11 +38,15 @@ pub fn define_database(input: TokenStream) -> TokenStream {
     }];
 
     let mut db_fields = vec![];
-    let mut relations = vec![];
+    let mut lowercase_relations = vec![];
+    let mut uppercase_relations = vec![];
     let mut symbol_fields = vec![];
     let mut symbols = vec![];
+    let mut insert_arms = vec![];
+    let mut row_enum_fields = vec![];
     for (name, spec) in spec.0.clone() {
-        let relation_name = Ident::new(&name.to_ascii_lowercase(), Span::call_site());
+        let lowercase_relation_name = Ident::new(&name.to_ascii_lowercase(), Span::call_site());
+        let uppercase_relation_name = Ident::new(&name, Span::call_site());
         let symbol_field = Ident::new(&format!("{}_symbol", name.to_ascii_lowercase()), Span::call_site());
         symbol_fields.push(symbol_field.clone());
         symbols.push(spec.symbol);
@@ -50,46 +54,39 @@ pub fn define_database(input: TokenStream) -> TokenStream {
         let det_cols = spec.determinant.len();
         let dep_cols = dependent.len();
         db_fields.push(quote! {
-            #relation_name: Option<::db::table::Table<#det_cols, #dep_cols>>,
+            #lowercase_relation_name: Option<::db::table::Table<#det_cols, #dep_cols>>,
             #symbol_field: ::util::interner::IdentifierId,
         });
-        relations.push(relation_name);
-    }
 
-    let mut impl_fns = vec![];
-    for (name, spec) in spec.0 {
         let field_name = Ident::new(&name.to_ascii_lowercase(), Span::call_site());
         let symbol_field = Ident::new(&format!("{}_symbol", name.to_ascii_lowercase()), Span::call_site());
-        let fn_name = Ident::new(
-            &format!("create_{}", name.to_ascii_lowercase()),
-            Span::call_site(),
-        );
+        let mut field_names = vec![];
         let mut args = vec![];
         let mut det_names = vec![];
         let mut dep_names = vec![];
         let mut merge_exprs = vec![];
-        let mut ret_type = vec![];
+        let mut arg_idxs = vec![];
         let mut ret_idxs = vec![];
-        for column in spec.determinant.clone() {
+        for (idx, column) in spec.determinant.clone().into_iter().enumerate() {
             let name = Ident::new(&column.name, Span::call_site());
             let sort: TypePath = parse_str(&column.sort).unwrap();
+            field_names.push(quote! {#name});
             args.push(quote! {
                 #name: #sort
             });
             det_names.push(name);
+            arg_idxs.push(idx);
         }
-        for (idx, column) in spec
-            .dependent
-            .unwrap_or(default_dep_spec.clone())
+        for (idx, column) in dependent
             .into_iter()
             .enumerate()
         {
             let name = Ident::new(&column.name, Span::call_site());
             let sort: TypePath = parse_str(&column.sort).unwrap();
+            field_names.push(quote! {#name});
             args.push(quote! {
                 #name: #sort
             });
-            ret_type.push(quote! { #sort });
             ret_idxs.push(idx);
             dep_names.push(name);
             if column.sort == "::util::union_find::ClassId" {
@@ -101,17 +98,22 @@ pub fn define_database(input: TokenStream) -> TokenStream {
                 panic!()
             }
         }
-        impl_fns.push(quote! {
-            fn #fn_name(&mut self, #(#args),*) -> (#(#ret_type),*) {
+        insert_arms.push(quote! {
+            Row::#uppercase_relation_name { #(#field_names),* } => {
                 let det = [#(unsafe { ::core::mem::transmute(#det_names) }),*];
                 let dep = [#(unsafe { ::core::mem::transmute(#dep_names) }),*];
                 let new_dep = self.#field_name.get_or_insert_with(|| ::db::table::Table::new(self.#symbol_field)).insert_row(&det, &dep);
                 if new_dep != &dep {
                     #(#merge_exprs)*
                 }
-                (#(unsafe { ::core::mem::transmute(new_dep[#ret_idxs]) }),*)
+                #(let #det_names = unsafe { ::core::mem::transmute(det[#arg_idxs]) };)*
+                #(let #dep_names = unsafe { ::core::mem::transmute(new_dep[#ret_idxs]) };)*
+                Row::#uppercase_relation_name { #(#field_names),* }
             }
         });
+        row_enum_fields.push(quote!(#(#args),*));
+        lowercase_relations.push(lowercase_relation_name);
+        uppercase_relations.push(uppercase_relation_name);
     }
 
     quote! {
@@ -120,16 +122,25 @@ pub fn define_database(input: TokenStream) -> TokenStream {
             uf: ::util::union_find::UnionFind,
         }
 
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        enum Row {
+            #(#uppercase_relations { #row_enum_fields }),*
+        }
+
         impl Database {
             fn new(interner: &mut ::util::interner::StringInterner) -> Self {
                 Self {
                     uf: ::util::union_find::UnionFind::new(),
-                    #(#relations: None),*,
+                    #(#lowercase_relations: None),*,
                     #(#symbol_fields: interner.intern(#symbols)),*,
                 }
             }
 
-            #(#impl_fns)*
+            fn insert(&mut self, row: Row) -> Row {
+                match row {
+                    #(#insert_arms),*
+                }
+            }
         }
     }
     .into()
