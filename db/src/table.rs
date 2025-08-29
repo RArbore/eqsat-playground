@@ -7,8 +7,8 @@ const EMPTY: u32 = 0xFFFFFFFF;
 pub struct Table<const DET_COLS: usize, const DEP_COLS: usize> {
     contents: VirtualVec<([u32; DET_COLS], [u32; DEP_COLS])>,
     determine_map: HashMap<&'static [u32; DET_COLS], &'static [u32; DEP_COLS]>,
-    num_allocated_rows: u32,
-    num_free_rows: u32,
+    pub num_allocated_rows: u32,
+    pub num_free_rows: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
