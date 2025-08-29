@@ -7,6 +7,7 @@ pub enum ColumnType {
     EClass,
     Identifier,
     Constant,
+    RawIndex,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +21,8 @@ const EMPTY: u32 = 0xFFFFFFFF;
 pub struct Table<const DET_COLS: usize, const DEP_COLS: usize> {
     contents: VirtualVec<([u32; DET_COLS], [u32; DEP_COLS])>,
     determine_map: HashMap<&'static [u32; DET_COLS], &'static [u32; DEP_COLS]>,
+    num_allocated_rows: u32,
+    num_free_rows: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,6 +36,8 @@ impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
         Self {
             contents: VirtualVec::new(),
             determine_map: HashMap::new(),
+            num_allocated_rows: 0,
+            num_free_rows: 0,
         }
     }
 
@@ -46,6 +51,7 @@ impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
         if let Some(dependent) = self.determine_map.get(determinant) {
             dependent
         } else {
+            self.num_allocated_rows += 1;
             let idx = self.contents.len();
             self.contents.push((*determinant, dependent()));
             let row = unsafe { self.contents.static_ref(idx) };
@@ -74,6 +80,8 @@ impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
 
     pub fn delete_row(&mut self, row: RowId) -> bool {
         if self.determine_map.remove(&self.contents[row.0 as usize].0).is_some() {
+            self.num_allocated_rows -= 1;
+            self.num_free_rows += 1;
             self.contents[row.0 as usize] = ([EMPTY; DET_COLS], [EMPTY; DEP_COLS]);
             true
         } else {
@@ -94,15 +102,25 @@ mod tests {
         assert_eq!(table.insert_row(&[0, 2], &[4]), &[3]);
         assert_eq!(table.insert_row(&[0, 1], &[5]), &[2]);
         assert_eq!(table.insert_row(&[1, 2], &[3]), &[3]);
+        assert_eq!(table.num_allocated_rows, 3);
+        assert_eq!(table.num_free_rows, 0);
         let id = table.first_row().unwrap();
         assert!(table.delete_row(id));
         assert!(!table.delete_row(id));
+        assert_eq!(table.num_allocated_rows, 2);
+        assert_eq!(table.num_free_rows, 1);
         assert_eq!(table.insert_row(&[0, 1], &[5]), &[5]);
         assert_eq!(table.insert_row(&[0, 1], &[7]), &[5]);
+        assert_eq!(table.num_allocated_rows, 3);
+        assert_eq!(table.num_free_rows, 1);
         let id = table.next_row(id).unwrap();
         assert!(table.delete_row(id));
         assert!(!table.delete_row(id));
+        assert_eq!(table.num_allocated_rows, 2);
+        assert_eq!(table.num_free_rows, 2);
         assert_eq!(table.insert_row(&[0, 2], &[7]), &[7]);
         assert_eq!(table.insert_row(&[0, 2], &[6]), &[7]);
+        assert_eq!(table.num_allocated_rows, 3);
+        assert_eq!(table.num_free_rows, 2);
     }
 }

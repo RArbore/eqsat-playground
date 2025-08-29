@@ -1,0 +1,117 @@
+[Constant]
+symbol = "cons"
+[[Constant.determinant]]
+name = "value"
+sort = "Constant"
+
+[Phi]
+symbol = "ϕ"
+[[Phi.determinant]]
+name = "data"
+sort = "EClass"
+variadic = true
+
+[Parameter]
+symbol = "param"
+[[Parameter.determinant]]
+name = "index"
+sort = "RawIndex"
+
+[Add]
+symbol = "+"
+[[Add.determinant]]
+name = "lhs"
+sort = "EClass"
+[[Add.determinant]]
+name = "rhs"
+sort = "EClass"
+
+[Subtract]
+symbol = "-"
+[[Subtract.determinant]]
+name = "lhs"
+sort = "EClass"
+[[Subtract.determinant]]
+name = "rhs"
+sort = "EClass"
+
+[Multiply]
+symbol = "*"
+[[Multiply.determinant]]
+name = "lhs"
+sort = "EClass"
+[[Multiply.determinant]]
+name = "rhs"
+sort = "EClass"
+
+[Divide]
+symbol = "/"
+[[Divide.determinant]]
+name = "lhs"
+sort = "EClass"
+[[Divide.determinant]]
+name = "rhs"
+sort = "EClass"
+
+[Modulo]
+symbol = "%"
+[[Modulo.determinant]]
+name = "lhs"
+sort = "EClass"
+[[Modulo.determinant]]
+name = "rhs"
+sort = "EClass"
+
+[EqualsEquals]
+symbol = "="
+[[EqualsEquals.determinant]]
+name = "lhs"
+sort = "EClass"
+[[EqualsEquals.determinant]]
+name = "rhs"
+sort = "EClass"
+
+[NotEquals]
+symbol = "≠"
+[[NotEquals.determinant]]
+name = "lhs"
+sort = "EClass"
+[[NotEquals.determinant]]
+name = "rhs"
+sort = "EClass"
+
+[Less]
+symbol = "<"
+[[Less.determinant]]
+name = "lhs"
+sort = "EClass"
+[[Less.determinant]]
+name = "rhs"
+sort = "EClass"
+
+[LessEquals]
+symbol = "≤"
+[[LessEquals.determinant]]
+name = "lhs"
+sort = "EClass"
+[[LessEquals.determinant]]
+name = "rhs"
+sort = "EClass"
+
+[Greater]
+symbol = ">"
+[[Greater.determinant]]
+name = "lhs"
+sort = "EClass"
+[[Greater.determinant]]
+name = "rhs"
+sort = "EClass"
+
+[GreaterEquals]
+symbol = "≥"
+[[GreaterEquals.determinant]]
+name = "lhs"
+sort = "EClass"
+[[GreaterEquals.determinant]]
+name = "rhs"
+sort = "EClass"

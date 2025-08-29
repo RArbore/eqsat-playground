@@ -8,4 +8,5 @@ lalrpop = "*"
 
 [dependencies]
 lalrpop-util = { version = "*", features = ["lexer", "unicode"] }
+db-proc = { path = "../db-proc" }
 util = { path = "../util" }
