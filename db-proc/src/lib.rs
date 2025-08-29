@@ -39,13 +39,19 @@ pub fn define_database(input: TokenStream) -> TokenStream {
 
     let mut db_fields = vec![];
     let mut relations = vec![];
+    let mut symbol_fields = vec![];
+    let mut symbols = vec![];
     for (name, spec) in spec.0.clone() {
         let relation_name = Ident::new(&name.to_ascii_lowercase(), Span::call_site());
+        let symbol_field = Ident::new(&format!("{}_symbol", name.to_ascii_lowercase()), Span::call_site());
+        symbol_fields.push(symbol_field.clone());
+        symbols.push(spec.symbol);
         let dependent = spec.dependent.unwrap_or(default_dep_spec.clone());
         let det_cols = spec.determinant.len();
         let dep_cols = dependent.len();
         db_fields.push(quote! {
             #relation_name: Option<::db::table::Table<#det_cols, #dep_cols>>,
+            #symbol_field: ::util::interner::IdentifierId,
         });
         relations.push(relation_name);
     }
@@ -53,6 +59,7 @@ pub fn define_database(input: TokenStream) -> TokenStream {
     let mut impl_fns = vec![];
     for (name, spec) in spec.0 {
         let field_name = Ident::new(&name.to_ascii_lowercase(), Span::call_site());
+        let symbol_field = Ident::new(&format!("{}_symbol", name.to_ascii_lowercase()), Span::call_site());
         let fn_name = Ident::new(
             &format!("create_{}", name.to_ascii_lowercase()),
             Span::call_site(),
@@ -98,7 +105,7 @@ pub fn define_database(input: TokenStream) -> TokenStream {
             fn #fn_name(&mut self, #(#args),*) -> (#(#ret_type),*) {
                 let det = [#(unsafe { ::core::mem::transmute(#det_names) }),*];
                 let dep = [#(unsafe { ::core::mem::transmute(#dep_names) }),*];
-                let new_dep = self.#field_name.get_or_insert_with(::db::table::Table::new).insert_row(&det, &dep);
+                let new_dep = self.#field_name.get_or_insert_with(|| ::db::table::Table::new(self.#symbol_field)).insert_row(&det, &dep);
                 if new_dep != &dep {
                     #(#merge_exprs)*
                 }
@@ -114,10 +121,11 @@ pub fn define_database(input: TokenStream) -> TokenStream {
         }
 
         impl Database {
-            fn new() -> Self {
+            fn new(interner: &mut ::util::interner::StringInterner) -> Self {
                 Self {
                     uf: ::util::union_find::UnionFind::new(),
-                    #(#relations: None),*
+                    #(#relations: None),*,
+                    #(#symbol_fields: interner.intern(#symbols)),*,
                 }
             }
 
