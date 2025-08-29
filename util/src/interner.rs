@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use crate::arena::{Arena, BrandedArenaId};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(transparent)]
 pub struct IdentifierId(u32);
 
 impl IdentifierId {

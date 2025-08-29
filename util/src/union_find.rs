@@ -3,6 +3,7 @@ use core::cell::Cell;
 use crate::vec::{VirtualVec};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
 pub struct ClassId(u32);
 
 pub struct UnionFind {

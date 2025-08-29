@@ -2,20 +2,6 @@ use std::collections::HashMap;
 
 use util::vec::VirtualVec;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ColumnType {
-    EClass,
-    Identifier,
-    Constant,
-    RawIndex,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Schema<const DET_COLS: usize, const DEP_COLS: usize> {
-    pub determinant_columns: [ColumnType; DET_COLS],
-    pub dependent_columns: [ColumnType; DEP_COLS],
-}
-
 const EMPTY: u32 = 0xFFFFFFFF;
 
 pub struct Table<const DET_COLS: usize, const DEP_COLS: usize> {
