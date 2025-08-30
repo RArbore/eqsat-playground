@@ -64,7 +64,7 @@ impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
 
     pub fn first_row(&self) -> Option<RowId> {
         for idx in 0..self.contents.len() {
-            if self.contents[idx].0[0] != EMPTY {
+            if self.contents[idx] != ([EMPTY; DET_COLS], [EMPTY; DEP_COLS]) {
                 return Some(RowId(idx as u32));
             }
         }
@@ -73,7 +73,7 @@ impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
 
     pub fn next_row(&self, row: RowId) -> Option<RowId> {
         for idx in (row.0 as usize + 1)..self.contents.len() {
-            if self.contents[idx].0[0] != EMPTY {
+            if self.contents[idx] != ([EMPTY; DET_COLS], [EMPTY; DEP_COLS]) {
                 return Some(RowId(idx as u32));
             }
         }
