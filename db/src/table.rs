@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use util::interner::IdentifierId;
+use util::interner::{IdentifierId, StringInterner};
 use util::vec::VirtualVec;
 
 const EMPTY: u32 = 0xFFFFFFFF;
@@ -98,6 +98,18 @@ impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
             false
         }
     }
+
+    pub fn dump(&self, interner: &StringInterner) -> String {
+        let mut s = String::new();
+        let symbol = interner.get(self.symbol);
+        let mut maybe_row_id = self.first_row();
+        while let Some(row_id) = maybe_row_id {
+            let row = self.get_row(row_id);
+            s = format!("{}{}({:?}) -> {:?}\n", s, symbol, row.0, row.1);
+            maybe_row_id = self.next_row(row_id);
+        }
+        s
+    }
 }
 
 #[cfg(test)]
@@ -108,6 +120,7 @@ mod tests {
     use util::interner::StringInterner;
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn simple_table() {
         let mut buf: [u64; 1] = [0; 1];
         let arena = Arena::new_backed(&mut buf);

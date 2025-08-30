@@ -1,23 +1,22 @@
 use core::cell::Cell;
 
-use crate::vec::{VirtualVec};
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct ClassId(u32);
 
+#[derive(Debug)]
 pub struct UnionFind {
-    vec: VirtualVec<Cell<ClassId>>,
+    vec: Vec<Cell<ClassId>>,
 }
 
 impl UnionFind {
     pub fn new() -> Self {
         Self {
-            vec: VirtualVec::new(),
+            vec: Vec::new(),
         }
     }
 
-    pub fn makeset(&self) -> ClassId {
+    pub fn makeset(&mut self) -> ClassId {
         let len = self.vec.len();
         let id = ClassId(len.try_into().unwrap());
         self.vec.push(Cell::new(id));
@@ -73,7 +72,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn simple_uf() {
-        let uf = UnionFind::new();
+        let mut uf = UnionFind::new();
         let x = uf.makeset();
         let y = uf.makeset();
         let z = uf.makeset();
@@ -95,7 +94,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn complex_uf() {
-        let uf = UnionFind::new();
+        let mut uf = UnionFind::new();
         let mut ids = vec![];
         for _ in 0..1000 {
             ids.push(uf.makeset());

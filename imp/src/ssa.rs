@@ -94,7 +94,7 @@ fn add_decode(det: &[u32; 2], dep: &[u32; 1]) -> Term {
     }
 }
 
-pub struct Database {
+pub struct Graph {
     constant: Table<1, 1>,
     param: Table<1, 1>,
     phi: Table<2, 1>,
@@ -102,7 +102,7 @@ pub struct Database {
     uf_theory: UFTheory,
 }
 
-impl Database {
+impl Graph {
     pub fn new(interner: &mut StringInterner) -> Self {
         Self {
             constant: Table::new(interner.intern("cons")),
@@ -152,7 +152,7 @@ impl Database {
         }
     }
 
-    pub fn makeset(&self) -> ClassId {
+    pub fn makeset(&mut self) -> ClassId {
         self.uf_theory.uf.makeset()
     }
 
@@ -168,15 +168,37 @@ impl Database {
         loop {
             let mut changed = false;
 
-            changed = rebuild_table(&mut self.constant, &mut self.uf_theory, constant_encode, constant_decode) || changed;
-            changed = rebuild_table(&mut self.param, &mut self.uf_theory, param_encode, param_decode) || changed;
-            changed = rebuild_table(&mut self.phi, &mut self.uf_theory, phi_encode, phi_decode) || changed;
-            changed = rebuild_table(&mut self.add, &mut self.uf_theory, add_encode, add_decode) || changed;
+            changed = rebuild_table(
+                &mut self.constant,
+                &mut self.uf_theory,
+                constant_encode,
+                constant_decode,
+            ) || changed;
+            changed = rebuild_table(
+                &mut self.param,
+                &mut self.uf_theory,
+                param_encode,
+                param_decode,
+            ) || changed;
+            changed = rebuild_table(&mut self.phi, &mut self.uf_theory, phi_encode, phi_decode)
+                || changed;
+            changed = rebuild_table(&mut self.add, &mut self.uf_theory, add_encode, add_decode)
+                || changed;
 
             if !changed {
                 break;
             }
         }
+    }
+
+    pub fn dump(&self, interner: &StringInterner) -> String {
+        format!(
+            "{}{}{}{}",
+            self.constant.dump(interner),
+            self.param.dump(interner),
+            self.phi.dump(interner),
+            self.add.dump(interner)
+        )
     }
 }
 
@@ -234,12 +256,13 @@ mod tests {
     use util::interner::StringInterner;
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn hash_cons() {
         let mut buf: [u64; 100] = [0; 100];
         let arena = Arena::new_backed(&mut buf);
         let mut interner = StringInterner::new(&arena);
 
-        let mut db = Database::new(&mut interner);
+        let mut db = Graph::new(&mut interner);
         let root1 = db.makeset();
         let cons1 = db.insert(Term::Constant {
             value: 5i32,
@@ -302,12 +325,13 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn rebuild() {
         let mut buf: [u64; 100] = [0; 100];
         let arena = Arena::new_backed(&mut buf);
         let mut interner = StringInterner::new(&arena);
 
-        let mut db = Database::new(&mut interner);
+        let mut db = Graph::new(&mut interner);
         let a = db.makeset();
         let b = db.makeset();
         let c = db.makeset();
