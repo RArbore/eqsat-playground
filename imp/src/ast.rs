@@ -29,7 +29,7 @@ pub enum StatementAST<'a> {
 
 #[derive(Debug)]
 pub enum ExpressionAST<'a> {
-    NumberLiteral(i64),
+    NumberLiteral(i32),
     Variable(IdentifierId),
 
     Call(IdentifierId, ArenaVec<'a, ExpressionAST<'a>>),

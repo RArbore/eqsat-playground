@@ -4,7 +4,7 @@ pub trait Theory {
     type Term: PartialEq;
 
     fn canonicalize(&mut self, term: &Self::Term) -> Self::Term;
-    fn solve(&mut self, lhs: &Self::Term, rhs: &Self::Term) -> Self::Term;
+    fn solve(&mut self, lhs: &Self::Term, rhs: &Self::Term);
 }
 
 pub fn rebuild_table<const DET_COLS: usize, const DEP_COLS: usize, T, E, D>(
@@ -12,11 +12,13 @@ pub fn rebuild_table<const DET_COLS: usize, const DEP_COLS: usize, T, E, D>(
     theory: &mut T,
     encode: E,
     decode: D,
-) where
+) -> bool
+where
     T: Theory,
     E: Fn(&T::Term) -> ([u32; DET_COLS], [u32; DEP_COLS]),
     D: Fn(&[u32; DET_COLS], &[u32; DEP_COLS]) -> T::Term,
 {
+    let mut ever_changed = false;
     loop {
         let mut changed = false;
 
@@ -41,6 +43,9 @@ pub fn rebuild_table<const DET_COLS: usize, const DEP_COLS: usize, T, E, D>(
 
         if !changed {
             break;
+        } else {
+            ever_changed = true;
         }
     }
+    ever_changed
 }
