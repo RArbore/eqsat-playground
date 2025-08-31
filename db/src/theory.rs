@@ -1,8 +1,15 @@
+use core::hash::Hash;
+use core::mem::swap;
+use std::collections::HashSet;
+
+use util::union_find::{ClassId, UnionFind};
+
 use crate::table::Table;
 
 pub trait Theory {
     type Term: PartialEq;
 
+    fn bottom() -> Self;
     fn canonicalize(&mut self, term: &Self::Term) -> Self::Term;
     fn solve(&mut self, lhs: &Self::Term, rhs: &Self::Term);
 }
@@ -48,4 +55,48 @@ where
         }
     }
     ever_changed
+}
+
+pub trait ENode {
+    fn root(&self) -> ClassId;
+    fn canonicalize(&self, uf: &mut UnionFind) -> Self;
+}
+
+pub fn corebuild<T>(terms: Vec<T>, uf: &mut UnionFind)
+where
+    T: Clone + ENode + Eq + Hash,
+{
+    let num_classes = uf.num_classes();
+    let mut last_uf = UnionFind::new_all_equals(num_classes);
+    let mut next_uf = UnionFind::new_all_not_equals(num_classes);
+    let mut observations = vec![HashSet::<T>::new(); num_classes as usize];
+
+    loop {
+        for term in &terms {
+            observations[term.root().idx() as usize].insert(term.canonicalize(&mut last_uf));
+        }
+
+        for lhs in 0..num_classes {
+            for rhs in 0..num_classes {
+                if !observations[lhs as usize].is_disjoint(&observations[rhs as usize]) {
+                    next_uf.merge(ClassId::new(lhs), ClassId::new(rhs));
+                }
+            }
+        }
+
+        if last_uf == next_uf {
+            break;
+        } else {
+            swap(&mut last_uf, &mut next_uf);
+            next_uf = UnionFind::new_all_not_equals(num_classes);
+            observations.clear();
+            observations.resize(num_classes as usize, HashSet::new());
+        }
+    }
+
+    for idx in 0..num_classes {
+        let id = ClassId::new(idx);
+        let canon = last_uf.find(id);
+        uf.merge(id, canon);
+    }
 }

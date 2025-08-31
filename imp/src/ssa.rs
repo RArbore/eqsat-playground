@@ -1,11 +1,11 @@
 use core::mem::transmute;
 
 use db::table::Table;
-use db::theory::{Theory, rebuild_table};
+use db::theory::{ENode, Theory, corebuild, rebuild_table};
 use util::interner::StringInterner;
 use util::union_find::{ClassId, UnionFind};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Term {
     Constant {
         value: i32,
@@ -54,8 +54,8 @@ pub enum Term {
     },
 }
 
-impl Term {
-    pub fn root(&self) -> ClassId {
+impl ENode for Term {
+    fn root(&self) -> ClassId {
         match self {
             Term::Constant { root, .. } => *root,
             Term::Param { root, .. } => *root,
@@ -66,6 +66,58 @@ impl Term {
             Term::Finish { root, .. } => *root,
             Term::Phi { root, .. } => *root,
             Term::Add { root, .. } => *root,
+        }
+    }
+
+    fn canonicalize(&self, uf: &mut UnionFind) -> Self {
+        match self {
+            Term::Constant { value, root } => Term::Constant {
+                value: *value,
+                root: uf.find(*root),
+            },
+            Term::Param { index, root } => Term::Param {
+                index: *index,
+                root: uf.find(*root),
+            },
+            Term::Start { root } => Term::Start {
+                root: uf.find(*root),
+            },
+            Term::Region { lhs, rhs, root } => Term::Region {
+                lhs: uf.find(*lhs),
+                rhs: uf.find(*rhs),
+                root: uf.find(*root),
+            },
+            Term::Branch { pred, cond, root } => Term::Branch {
+                pred: uf.find(*pred),
+                cond: uf.find(*cond),
+                root: uf.find(*root),
+            },
+            Term::ControlProj { pred, index, root } => Term::ControlProj {
+                pred: uf.find(*pred),
+                index: *index,
+                root: uf.find(*root),
+            },
+            Term::Finish { pred, value, root } => Term::Finish {
+                pred: uf.find(*pred),
+                value: uf.find(*value),
+                root: uf.find(*root),
+            },
+            Term::Phi {
+                region,
+                lhs,
+                rhs,
+                root,
+            } => Term::Phi {
+                region: uf.find(*region),
+                lhs: uf.find(*lhs),
+                rhs: uf.find(*rhs),
+                root: uf.find(*root),
+            },
+            Term::Add { lhs, rhs, root } => Term::Add {
+                lhs: uf.find(*lhs),
+                rhs: uf.find(*rhs),
+                root: uf.find(*root),
+            },
         }
     }
 }
@@ -249,9 +301,7 @@ impl Graph {
             finish: Table::new(interner.intern("finish")),
             phi: Table::new(interner.intern("ϕ")),
             add: Table::new(interner.intern("+")),
-            uf_theory: UFTheory {
-                uf: UnionFind::new(),
-            },
+            uf_theory: UFTheory::bottom(),
         }
     }
 
@@ -366,6 +416,8 @@ impl Graph {
         loop {
             let mut changed = false;
 
+            corebuild(self.terms().collect(), &mut self.uf_theory.uf);
+
             changed = rebuild_table(
                 &mut self.constant,
                 &mut self.uf_theory,
@@ -442,56 +494,14 @@ struct UFTheory {
 impl Theory for UFTheory {
     type Term = Term;
 
-    fn canonicalize(&mut self, term: &Self::Term) -> Self::Term {
-        match term {
-            Term::Constant { value, root } => Term::Constant {
-                value: *value,
-                root: self.uf.find(*root),
-            },
-            Term::Param { index, root } => Term::Param {
-                index: *index,
-                root: self.uf.find(*root),
-            },
-            Term::Start { root } => Term::Start {
-                root: self.uf.find(*root),
-            },
-            Term::Region { lhs, rhs, root } => Term::Region {
-                lhs: self.uf.find(*lhs),
-                rhs: self.uf.find(*rhs),
-                root: self.uf.find(*root),
-            },
-            Term::Branch { pred, cond, root } => Term::Branch {
-                pred: self.uf.find(*pred),
-                cond: self.uf.find(*cond),
-                root: self.uf.find(*root),
-            },
-            Term::ControlProj { pred, index, root } => Term::ControlProj {
-                pred: self.uf.find(*pred),
-                index: *index,
-                root: self.uf.find(*root),
-            },
-            Term::Finish { pred, value, root } => Term::Finish {
-                pred: self.uf.find(*pred),
-                value: self.uf.find(*value),
-                root: self.uf.find(*root),
-            },
-            Term::Phi {
-                region,
-                lhs,
-                rhs,
-                root,
-            } => Term::Phi {
-                region: self.uf.find(*region),
-                lhs: self.uf.find(*lhs),
-                rhs: self.uf.find(*rhs),
-                root: self.uf.find(*root),
-            },
-            Term::Add { lhs, rhs, root } => Term::Add {
-                lhs: self.uf.find(*lhs),
-                rhs: self.uf.find(*rhs),
-                root: self.uf.find(*root),
-            },
+    fn bottom() -> Self {
+        UFTheory {
+            uf: UnionFind::new(),
         }
+    }
+
+    fn canonicalize(&mut self, term: &Self::Term) -> Self::Term {
+        term.canonicalize(&mut self.uf)
     }
 
     fn solve(&mut self, lhs: &Self::Term, rhs: &Self::Term) {

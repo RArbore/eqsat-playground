@@ -9,6 +9,8 @@ use util::arena::Arena;
 use util::interner::StringInterner;
 use util::union_find::ClassId;
 
+use db::theory::ENode;
+
 use imp::ai::abstract_interpret;
 use imp::grammar::ProgramParser;
 use imp::ssa::{Graph, Term};

@@ -5,12 +5,16 @@ use core::cell::Cell;
 pub struct ClassId(u32);
 
 impl ClassId {
+    pub fn new(idx: u32) -> Self {
+        Self(idx)
+    }
+
     pub fn idx(&self) -> u32 {
         self.0
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnionFind {
     vec: Vec<Cell<ClassId>>,
 }
@@ -22,11 +26,27 @@ impl UnionFind {
         }
     }
 
+    pub fn new_all_not_equals(amount: u32) -> Self {
+        Self {
+            vec: (0..amount).map(|idx| Cell::new(ClassId(idx))).collect()
+        }
+    }
+
+    pub fn new_all_equals(amount: u32) -> Self {
+        Self {
+            vec: vec![Cell::new(ClassId(0)); amount as usize],
+        }
+    }
+
     pub fn makeset(&mut self) -> ClassId {
         let len = self.vec.len();
         let id = ClassId(len.try_into().unwrap());
         self.vec.push(Cell::new(id));
         id
+    }
+
+    pub fn num_classes(&self) -> u32 {
+        self.vec.len().try_into().unwrap()
     }
 
     pub fn find(&self, mut id: ClassId) -> ClassId {
