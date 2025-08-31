@@ -20,9 +20,6 @@ pub struct RowId(u32);
 
 impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
     pub fn new(symbol: IdentifierId) -> Self {
-        const {
-            assert!(DET_COLS > 0);
-        }
         Self {
             contents: VirtualVec::new(),
             determine_map: HashMap::new(),

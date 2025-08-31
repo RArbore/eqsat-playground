@@ -15,11 +15,38 @@ pub enum Term {
         index: u32,
         root: ClassId,
     },
-    Phi {
+
+    Start {
+        root: ClassId,
+    },
+    Region {
         lhs: ClassId,
         rhs: ClassId,
         root: ClassId,
     },
+    Branch {
+        pred: ClassId,
+        cond: ClassId,
+        root: ClassId,
+    },
+    ControlProj {
+        pred: ClassId,
+        index: u32,
+        root: ClassId,
+    },
+    Finish {
+        pred: ClassId,
+        value: ClassId,
+        root: ClassId,
+    },
+
+    Phi {
+        region: ClassId,
+        lhs: ClassId,
+        rhs: ClassId,
+        root: ClassId,
+    },
+
     Add {
         lhs: ClassId,
         rhs: ClassId,
@@ -41,11 +68,44 @@ fn param_encode(term: &Term) -> ([u32; 1], [u32; 1]) {
     unsafe { transmute(([*index], [*root])) }
 }
 
-fn phi_encode(term: &Term) -> ([u32; 2], [u32; 1]) {
-    let Term::Phi { lhs, rhs, root } = term else {
+fn start_encode(term: &Term) -> ([u32; 0], [u32; 1]) {
+    let Term::Start { root } = term else { panic!() };
+    unsafe { transmute(*root) }
+}
+
+fn region_encode(term: &Term) -> ([u32; 2], [u32; 1]) {
+    let Term::Region { lhs, rhs, root } = term else {
         panic!()
     };
     unsafe { transmute(([*lhs, *rhs], [*root])) }
+}
+
+fn branch_encode(term: &Term) -> ([u32; 2], [u32; 1]) {
+    let Term::Branch { pred, cond, root } = term else {
+        panic!()
+    };
+    unsafe { transmute(([*pred, *cond], [*root])) }
+}
+
+fn control_proj_encode(term: &Term) -> ([u32; 2], [u32; 1]) {
+    let Term::ControlProj { pred, index, root } = term else {
+        panic!()
+    };
+    unsafe { transmute(([*pred, transmute(*index)], [*root])) }
+}
+
+fn finish_encode(term: &Term) -> ([u32; 2], [u32; 1]) {
+    let Term::Finish { pred, value, root } = term else {
+        panic!()
+    };
+    unsafe { transmute(([*pred, *value], [*root])) }
+}
+
+fn phi_encode(term: &Term) -> ([u32; 3], [u32; 1]) {
+    let Term::Phi { region, lhs, rhs, root } = term else {
+        panic!()
+    };
+    unsafe { transmute(([*region, *lhs, *rhs], [*root])) }
 }
 
 fn add_encode(term: &Term) -> ([u32; 2], [u32; 1]) {
@@ -74,11 +134,59 @@ fn param_decode(det: &[u32; 1], dep: &[u32; 1]) -> Term {
     }
 }
 
-fn phi_decode(det: &[u32; 2], dep: &[u32; 1]) -> Term {
+fn start_decode(_det: &[u32; 0], dep: &[u32; 1]) -> Term {
     unsafe {
-        Term::Phi {
+        Term::Start {
+            root: transmute(dep[0]),
+        }
+    }
+}
+
+fn region_decode(det: &[u32; 2], dep: &[u32; 1]) -> Term {
+    unsafe {
+        Term::Region {
             lhs: transmute(det[0]),
             rhs: transmute(det[1]),
+            root: transmute(dep[0]),
+        }
+    }
+}
+
+fn branch_decode(det: &[u32; 2], dep: &[u32; 1]) -> Term {
+    unsafe {
+        Term::Branch {
+            pred: transmute(det[0]),
+            cond: transmute(det[1]),
+            root: transmute(dep[0]),
+        }
+    }
+}
+
+fn control_proj_decode(det: &[u32; 2], dep: &[u32; 1]) -> Term {
+    unsafe {
+        Term::ControlProj {
+            pred: transmute(det[0]),
+            index: transmute(det[1]),
+            root: transmute(dep[0]),
+        }
+    }
+}
+fn finish_decode(det: &[u32; 2], dep: &[u32; 1]) -> Term {
+    unsafe {
+        Term::Finish {
+            pred: transmute(det[0]),
+            value: transmute(det[1]),
+            root: transmute(dep[0]),
+        }
+    }
+}
+
+fn phi_decode(det: &[u32; 3], dep: &[u32; 1]) -> Term {
+    unsafe {
+        Term::Phi {
+            region: transmute(det[0]),
+            lhs: transmute(det[1]),
+            rhs: transmute(det[2]),
             root: transmute(dep[0]),
         }
     }
@@ -97,7 +205,12 @@ fn add_decode(det: &[u32; 2], dep: &[u32; 1]) -> Term {
 pub struct Graph {
     constant: Table<1, 1>,
     param: Table<1, 1>,
-    phi: Table<2, 1>,
+    start: Table<0, 1>,
+    region: Table<2, 1>,
+    branch: Table<2, 1>,
+    control_proj: Table<2, 1>,
+    finish: Table<2, 1>,
+    phi: Table<3, 1>,
     add: Table<2, 1>,
     uf_theory: UFTheory,
 }
@@ -107,6 +220,11 @@ impl Graph {
         Self {
             constant: Table::new(interner.intern("cons")),
             param: Table::new(interner.intern("param")),
+            start: Table::new(interner.intern("start")),
+            region: Table::new(interner.intern("region")),
+            branch: Table::new(interner.intern("branch")),
+            control_proj: Table::new(interner.intern("π")),
+            finish: Table::new(interner.intern("finish")),
             phi: Table::new(interner.intern("ϕ")),
             add: Table::new(interner.intern("+")),
             uf_theory: UFTheory {
@@ -132,6 +250,46 @@ impl Graph {
                     unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
                 }
                 param_decode(&det, &new_dep)
+            }
+            Term::Start { .. } => {
+                let (det, dep) = start_encode(&term);
+                let new_dep = self.start.insert_row(&det, &dep).clone();
+                if new_dep != dep {
+                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
+                }
+                start_decode(&det, &new_dep)
+            }
+            Term::Region { .. } => {
+                let (det, dep) = region_encode(&term);
+                let new_dep = self.region.insert_row(&det, &dep).clone();
+                if new_dep != dep {
+                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
+                }
+                region_decode(&det, &new_dep)
+            }
+            Term::Branch { .. } => {
+                let (det, dep) = branch_encode(&term);
+                let new_dep = self.branch.insert_row(&det, &dep).clone();
+                if new_dep != dep {
+                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
+                }
+                branch_decode(&det, &new_dep)
+            }
+            Term::ControlProj { .. } => {
+                let (det, dep) = control_proj_encode(&term);
+                let new_dep = self.control_proj.insert_row(&det, &dep).clone();
+                if new_dep != dep {
+                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
+                }
+                control_proj_decode(&det, &new_dep)
+            }
+            Term::Finish { .. } => {
+                let (det, dep) = finish_encode(&term);
+                let new_dep = self.finish.insert_row(&det, &dep).clone();
+                if new_dep != dep {
+                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
+                }
+                finish_decode(&det, &new_dep)
             }
             Term::Phi { .. } => {
                 let (det, dep) = phi_encode(&term);
@@ -180,6 +338,36 @@ impl Graph {
                 param_encode,
                 param_decode,
             ) || changed;
+            changed = rebuild_table(
+                &mut self.start,
+                &mut self.uf_theory,
+                start_encode,
+                start_decode,
+            ) || changed;
+            changed = rebuild_table(
+                &mut self.region,
+                &mut self.uf_theory,
+                region_encode,
+                region_decode,
+            ) || changed;
+            changed = rebuild_table(
+                &mut self.branch,
+                &mut self.uf_theory,
+                branch_encode,
+                branch_decode,
+            ) || changed;
+            changed = rebuild_table(
+                &mut self.control_proj,
+                &mut self.uf_theory,
+                control_proj_encode,
+                control_proj_decode,
+            ) || changed;
+            changed = rebuild_table(
+                &mut self.finish,
+                &mut self.uf_theory,
+                finish_encode,
+                finish_decode,
+            ) || changed;
             changed = rebuild_table(&mut self.phi, &mut self.uf_theory, phi_encode, phi_decode)
                 || changed;
             changed = rebuild_table(&mut self.add, &mut self.uf_theory, add_encode, add_decode)
@@ -193,9 +381,14 @@ impl Graph {
 
     pub fn dump(&self, interner: &StringInterner) -> String {
         format!(
-            "{}{}{}{}",
+            "{}{}{}{}{}{}{}{}{}",
             self.constant.dump(interner),
             self.param.dump(interner),
+            self.start.dump(interner),
+            self.region.dump(interner),
+            self.branch.dump(interner),
+            self.control_proj.dump(interner),
+            self.finish.dump(interner),
             self.phi.dump(interner),
             self.add.dump(interner)
         )
@@ -219,7 +412,31 @@ impl Theory for UFTheory {
                 index: *index,
                 root: self.uf.find(*root),
             },
-            Term::Phi { lhs, rhs, root } => Term::Phi {
+            Term::Start { root } => Term::Start {
+                root: self.uf.find(*root),
+            },
+            Term::Region { lhs, rhs, root } => Term::Region {
+                lhs: self.uf.find(*lhs),
+                rhs: self.uf.find(*rhs),
+                root: self.uf.find(*root),
+            },
+            Term::Branch { pred, cond, root } => Term::Branch {
+                pred: self.uf.find(*pred),
+                cond: self.uf.find(*cond),
+                root: self.uf.find(*root),
+            },
+            Term::ControlProj { pred, index, root } => Term::ControlProj {
+                pred: self.uf.find(*pred),
+                index: *index,
+                root: self.uf.find(*root),
+            },
+            Term::Finish { pred, value, root } => Term::Finish {
+                pred: self.uf.find(*pred),
+                value: self.uf.find(*value),
+                root: self.uf.find(*root),
+            },
+            Term::Phi { region, lhs, rhs, root } => Term::Phi {
+                region: self.uf.find(*region),
                 lhs: self.uf.find(*lhs),
                 rhs: self.uf.find(*rhs),
                 root: self.uf.find(*root),
@@ -231,16 +448,27 @@ impl Theory for UFTheory {
             },
         }
     }
+
     fn solve(&mut self, lhs: &Self::Term, rhs: &Self::Term) {
         let lhs_root = match lhs {
             Term::Constant { root, .. } => *root,
             Term::Param { root, .. } => *root,
+            Term::Start { root, .. } => *root,
+            Term::Region { root, .. } => *root,
+            Term::Branch { root, .. } => *root,
+            Term::ControlProj { root, .. } => *root,
+            Term::Finish { root, .. } => *root,
             Term::Phi { root, .. } => *root,
             Term::Add { root, .. } => *root,
         };
         let rhs_root = match rhs {
             Term::Constant { root, .. } => *root,
             Term::Param { root, .. } => *root,
+            Term::Start { root, .. } => *root,
+            Term::Region { root, .. } => *root,
+            Term::Branch { root, .. } => *root,
+            Term::ControlProj { root, .. } => *root,
+            Term::Finish { root, .. } => *root,
             Term::Phi { root, .. } => *root,
             Term::Add { root, .. } => *root,
         };
