@@ -42,8 +42,9 @@ pub fn dot(graph: &Graph) -> String {
     let mut s = "digraph EGraph {\ncompound=true\n".to_string();
     let open = |s: &mut String, id: ClassId| {
         *s = format!(
-            "{}subgraph cluster_{} {{\nnode_{} [shape=point style=invis]\n",
+            "{}subgraph cluster_{} {{\nlabel = \"{}\"\nnode_{} [shape=point style=invis]\n",
             s,
+            id.idx(),
             id.idx(),
             id.idx()
         );
