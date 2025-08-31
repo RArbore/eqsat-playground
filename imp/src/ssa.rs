@@ -54,6 +54,22 @@ pub enum Term {
     },
 }
 
+impl Term {
+    pub fn root(&self) -> ClassId {
+        match self {
+            Term::Constant { root, .. } => *root,
+            Term::Param { root, .. } => *root,
+            Term::Start { root, .. } => *root,
+            Term::Region { root, .. } => *root,
+            Term::Branch { root, .. } => *root,
+            Term::ControlProj { root, .. } => *root,
+            Term::Finish { root, .. } => *root,
+            Term::Phi { root, .. } => *root,
+            Term::Add { root, .. } => *root,
+        }
+    }
+}
+
 fn constant_encode(term: &Term) -> ([u32; 1], [u32; 1]) {
     let Term::Constant { value, root } = term else {
         panic!()
@@ -102,7 +118,13 @@ fn finish_encode(term: &Term) -> ([u32; 2], [u32; 1]) {
 }
 
 fn phi_encode(term: &Term) -> ([u32; 3], [u32; 1]) {
-    let Term::Phi { region, lhs, rhs, root } = term else {
+    let Term::Phi {
+        region,
+        lhs,
+        rhs,
+        root,
+    } = term
+    else {
         panic!()
     };
     unsafe { transmute(([*region, *lhs, *rhs], [*root])) }
@@ -322,6 +344,24 @@ impl Graph {
         self.uf_theory.uf.merge(a, b)
     }
 
+    pub fn terms(&self) -> impl Iterator<Item = Term> + '_ {
+        self.constant
+            .iter()
+            .map(|row| constant_decode(&row.0, &row.1))
+            .chain(self.param.iter().map(|row| param_decode(&row.0, &row.1)))
+            .chain(self.start.iter().map(|row| start_decode(&row.0, &row.1)))
+            .chain(self.region.iter().map(|row| region_decode(&row.0, &row.1)))
+            .chain(self.branch.iter().map(|row| branch_decode(&row.0, &row.1)))
+            .chain(
+                self.control_proj
+                    .iter()
+                    .map(|row| control_proj_decode(&row.0, &row.1)),
+            )
+            .chain(self.finish.iter().map(|row| finish_decode(&row.0, &row.1)))
+            .chain(self.phi.iter().map(|row| phi_decode(&row.0, &row.1)))
+            .chain(self.add.iter().map(|row| add_decode(&row.0, &row.1)))
+    }
+
     pub fn rebuild(&mut self) {
         loop {
             let mut changed = false;
@@ -435,7 +475,12 @@ impl Theory for UFTheory {
                 value: self.uf.find(*value),
                 root: self.uf.find(*root),
             },
-            Term::Phi { region, lhs, rhs, root } => Term::Phi {
+            Term::Phi {
+                region,
+                lhs,
+                rhs,
+                root,
+            } => Term::Phi {
                 region: self.uf.find(*region),
                 lhs: self.uf.find(*lhs),
                 rhs: self.uf.find(*rhs),
@@ -450,29 +495,7 @@ impl Theory for UFTheory {
     }
 
     fn solve(&mut self, lhs: &Self::Term, rhs: &Self::Term) {
-        let lhs_root = match lhs {
-            Term::Constant { root, .. } => *root,
-            Term::Param { root, .. } => *root,
-            Term::Start { root, .. } => *root,
-            Term::Region { root, .. } => *root,
-            Term::Branch { root, .. } => *root,
-            Term::ControlProj { root, .. } => *root,
-            Term::Finish { root, .. } => *root,
-            Term::Phi { root, .. } => *root,
-            Term::Add { root, .. } => *root,
-        };
-        let rhs_root = match rhs {
-            Term::Constant { root, .. } => *root,
-            Term::Param { root, .. } => *root,
-            Term::Start { root, .. } => *root,
-            Term::Region { root, .. } => *root,
-            Term::Branch { root, .. } => *root,
-            Term::ControlProj { root, .. } => *root,
-            Term::Finish { root, .. } => *root,
-            Term::Phi { root, .. } => *root,
-            Term::Add { root, .. } => *root,
-        };
-        self.uf.merge(lhs_root, rhs_root);
+        self.uf.merge(lhs.root(), rhs.root());
     }
 }
 

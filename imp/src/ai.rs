@@ -296,7 +296,6 @@ mod tests {
         let mut buf: [u8; 10000] = [0; 10000];
         let arena = Arena::new_backed(&mut buf);
 
-        //let program = "fn basic(x, y) { z = x + y; while z { z = z + -1; } if z { z = z + z; } else { z = z + 5; } return z; }";
         let program = "fn basic(x) { while x { x = x + -1; } return x; }";
         let program = ProgramParser::new()
             .parse(&arena, &mut interner, &program)

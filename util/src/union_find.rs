@@ -4,6 +4,12 @@ use core::cell::Cell;
 #[repr(transparent)]
 pub struct ClassId(u32);
 
+impl ClassId {
+    pub fn idx(&self) -> u32 {
+        self.0
+    }
+}
+
 #[derive(Debug)]
 pub struct UnionFind {
     vec: Vec<Cell<ClassId>>,

@@ -3,10 +3,19 @@ name = "imp"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "imp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dot"
+path = "src/bin/dot.rs"
+
 [build-dependencies]
 lalrpop = "*"
 
 [dependencies]
-lalrpop-util = { version = "*", features = ["lexer", "unicode"] }
 db = { path = "../db" }
+lalrpop-util = { version = "*", features = ["lexer", "unicode"] }
+tempfile = "*"
 util = { path = "../util" }

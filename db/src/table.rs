@@ -96,6 +96,14 @@ impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
         }
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = ([u32; DET_COLS], [u32; DEP_COLS])> + '_ {
+        self.contents
+            .as_ref()
+            .into_iter()
+            .filter(|row| *row != &([EMPTY; DET_COLS], [EMPTY; DEP_COLS]))
+            .map(|row| *row)
+    }
+
     pub fn dump(&self, interner: &StringInterner) -> String {
         let mut s = String::new();
         let symbol = interner.get(self.symbol);
