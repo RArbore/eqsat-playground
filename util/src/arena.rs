@@ -58,7 +58,10 @@ impl<T> Clone for BrandedArenaId<T> {
 impl<T> Copy for BrandedArenaId<T> {}
 
 impl<'a> ArenaInternal<'a> {
-    pub(crate) fn new_backed<T, const B: usize>(backing: &'a mut [T; B], align: usize) -> ArenaInternal<'a> {
+    pub(crate) fn new_backed<T, const B: usize>(
+        backing: &'a mut [T; B],
+        align: usize,
+    ) -> ArenaInternal<'a> {
         const {
             assert!(!needs_drop::<T>());
         }

@@ -1,7 +1,7 @@
 use core::mem::transmute;
 
+use db::rebuild::{ENode, corebuild, rebuild_table};
 use db::table::Table;
-use db::theory::{ENode, Theory, corebuild, rebuild_table};
 use util::interner::StringInterner;
 use util::union_find::{ClassId, UnionFind};
 
@@ -286,7 +286,7 @@ pub struct Graph {
     finish: Table<2, 1>,
     phi: Table<3, 1>,
     add: Table<2, 1>,
-    uf_theory: UFTheory,
+    uf: UnionFind,
 }
 
 impl Graph {
@@ -301,7 +301,7 @@ impl Graph {
             finish: Table::new(interner.intern("finish")),
             phi: Table::new(interner.intern("ϕ")),
             add: Table::new(interner.intern("+")),
-            uf_theory: UFTheory::bottom(),
+            uf: UnionFind::new(),
         }
     }
 
@@ -383,15 +383,15 @@ impl Graph {
     }
 
     pub fn makeset(&mut self) -> ClassId {
-        self.uf_theory.uf.makeset()
+        self.uf.makeset()
     }
 
     pub fn find(&self, id: ClassId) -> ClassId {
-        self.uf_theory.uf.find(id)
+        self.uf.find(id)
     }
 
     pub fn merge(&self, a: ClassId, b: ClassId) -> ClassId {
-        self.uf_theory.uf.merge(a, b)
+        self.uf.merge(a, b)
     }
 
     pub fn terms(&self) -> impl Iterator<Item = Term> + '_ {
@@ -416,54 +416,32 @@ impl Graph {
         loop {
             let mut changed = false;
 
-            corebuild(self.terms().collect(), &mut self.uf_theory.uf);
+            corebuild(self.terms().collect(), &mut self.uf);
 
             changed = rebuild_table(
                 &mut self.constant,
-                &mut self.uf_theory,
+                &mut self.uf,
                 constant_encode,
                 constant_decode,
             ) || changed;
-            changed = rebuild_table(
-                &mut self.param,
-                &mut self.uf_theory,
-                param_encode,
-                param_decode,
-            ) || changed;
-            changed = rebuild_table(
-                &mut self.start,
-                &mut self.uf_theory,
-                start_encode,
-                start_decode,
-            ) || changed;
-            changed = rebuild_table(
-                &mut self.region,
-                &mut self.uf_theory,
-                region_encode,
-                region_decode,
-            ) || changed;
-            changed = rebuild_table(
-                &mut self.branch,
-                &mut self.uf_theory,
-                branch_encode,
-                branch_decode,
-            ) || changed;
+            changed =
+                rebuild_table(&mut self.param, &mut self.uf, param_encode, param_decode) || changed;
+            changed =
+                rebuild_table(&mut self.start, &mut self.uf, start_encode, start_decode) || changed;
+            changed = rebuild_table(&mut self.region, &mut self.uf, region_encode, region_decode)
+                || changed;
+            changed = rebuild_table(&mut self.branch, &mut self.uf, branch_encode, branch_decode)
+                || changed;
             changed = rebuild_table(
                 &mut self.control_proj,
-                &mut self.uf_theory,
+                &mut self.uf,
                 control_proj_encode,
                 control_proj_decode,
             ) || changed;
-            changed = rebuild_table(
-                &mut self.finish,
-                &mut self.uf_theory,
-                finish_encode,
-                finish_decode,
-            ) || changed;
-            changed = rebuild_table(&mut self.phi, &mut self.uf_theory, phi_encode, phi_decode)
+            changed = rebuild_table(&mut self.finish, &mut self.uf, finish_encode, finish_decode)
                 || changed;
-            changed = rebuild_table(&mut self.add, &mut self.uf_theory, add_encode, add_decode)
-                || changed;
+            changed = rebuild_table(&mut self.phi, &mut self.uf, phi_encode, phi_decode) || changed;
+            changed = rebuild_table(&mut self.add, &mut self.uf, add_encode, add_decode) || changed;
 
             if !changed {
                 break;
@@ -484,28 +462,6 @@ impl Graph {
             self.phi.dump(interner),
             self.add.dump(interner)
         )
-    }
-}
-
-struct UFTheory {
-    uf: UnionFind,
-}
-
-impl Theory for UFTheory {
-    type Term = Term;
-
-    fn bottom() -> Self {
-        UFTheory {
-            uf: UnionFind::new(),
-        }
-    }
-
-    fn canonicalize(&mut self, term: &Self::Term) -> Self::Term {
-        term.canonicalize(&mut self.uf)
-    }
-
-    fn solve(&mut self, lhs: &Self::Term, rhs: &Self::Term) {
-        self.uf.merge(lhs.root(), rhs.root());
     }
 }
 

@@ -91,7 +91,9 @@ mod tests {
         let arena = Arena::new_backed(&mut buf);
 
         for program in get_example_imp_programs() {
-            ProgramParser::new().parse(&arena, &mut interner, &program).unwrap();
+            ProgramParser::new()
+                .parse(&arena, &mut interner, &program)
+                .unwrap();
         }
     }
 }

@@ -21,14 +21,12 @@ pub struct UnionFind {
 
 impl UnionFind {
     pub fn new() -> Self {
-        Self {
-            vec: Vec::new(),
-        }
+        Self { vec: Vec::new() }
     }
 
     pub fn new_all_not_equals(amount: u32) -> Self {
         Self {
-            vec: (0..amount).map(|idx| Cell::new(ClassId(idx))).collect()
+            vec: (0..amount).map(|idx| Cell::new(ClassId(idx))).collect(),
         }
     }
 

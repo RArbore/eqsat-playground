@@ -6,24 +6,21 @@ use util::union_find::{ClassId, UnionFind};
 
 use crate::table::Table;
 
-pub trait Theory {
-    type Term: PartialEq;
-
-    fn bottom() -> Self;
-    fn canonicalize(&mut self, term: &Self::Term) -> Self::Term;
-    fn solve(&mut self, lhs: &Self::Term, rhs: &Self::Term);
+pub trait ENode: PartialEq {
+    fn root(&self) -> ClassId;
+    fn canonicalize(&self, uf: &mut UnionFind) -> Self;
 }
 
 pub fn rebuild_table<const DET_COLS: usize, const DEP_COLS: usize, T, E, D>(
     table: &mut Table<DET_COLS, DEP_COLS>,
-    theory: &mut T,
+    uf: &mut UnionFind,
     encode: E,
     decode: D,
 ) -> bool
 where
-    T: Theory,
-    E: Fn(&T::Term) -> ([u32; DET_COLS], [u32; DEP_COLS]),
-    D: Fn(&[u32; DET_COLS], &[u32; DEP_COLS]) -> T::Term,
+    T: ENode,
+    E: Fn(&T) -> ([u32; DET_COLS], [u32; DEP_COLS]),
+    D: Fn(&[u32; DET_COLS], &[u32; DEP_COLS]) -> T,
 {
     let mut ever_changed = false;
     loop {
@@ -33,7 +30,7 @@ where
         while let Some(row_id) = maybe_row_id {
             let row = table.get_row(row_id);
             let term = decode(&row.0, &row.1);
-            let canon_term = theory.canonicalize(&term);
+            let canon_term = term.canonicalize(uf);
             if term != canon_term {
                 changed = true;
                 table.delete_row(row_id);
@@ -41,7 +38,7 @@ where
                 let new_dep = table.insert_row(&canon_row.0, &canon_row.1);
                 if new_dep != &canon_row.1 {
                     let resident_term = decode(&canon_row.0, new_dep);
-                    theory.solve(&canon_term, &resident_term);
+                    uf.merge(canon_term.root(), resident_term.root());
                 }
             }
 
@@ -55,11 +52,6 @@ where
         }
     }
     ever_changed
-}
-
-pub trait ENode {
-    fn root(&self) -> ClassId;
-    fn canonicalize(&self, uf: &mut UnionFind) -> Self;
 }
 
 pub fn corebuild<T>(terms: Vec<T>, uf: &mut UnionFind)

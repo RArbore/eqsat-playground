@@ -1,2 +1,2 @@
+pub mod rebuild;
 pub mod table;
-pub mod theory;
