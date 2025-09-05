@@ -11,7 +11,7 @@ pub trait ENode: PartialEq {
     fn canonicalize(&self, uf: &mut UnionFind) -> Self;
 }
 
-pub fn rebuild_table<const DET_COLS: usize, const DEP_COLS: usize, T, E, D>(
+pub fn rebuild_enode_table<const DET_COLS: usize, const DEP_COLS: usize, T, E, D>(
     table: &mut Table<DET_COLS, DEP_COLS>,
     uf: &mut UnionFind,
     encode: E,
@@ -35,11 +35,12 @@ where
                 changed = true;
                 table.delete_row(row_id);
                 let canon_row = encode(&canon_term);
-                let new_dep = table.insert_row(&canon_row.0, &canon_row.1);
-                if new_dep != &canon_row.1 {
-                    let resident_term = decode(&canon_row.0, new_dep);
-                    uf.merge(canon_term.root(), resident_term.root());
-                }
+                table.insert_row(&canon_row.0, &canon_row.1, |new, old| {
+                    let new_term = decode(&canon_row.0, new);
+                    let old_term = decode(&canon_row.0, old);
+                    uf.merge(new_term.root(), old_term.root());
+                    *old
+                });
             }
 
             maybe_row_id = table.next_row(row_id);

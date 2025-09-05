@@ -1,6 +1,6 @@
 use core::mem::transmute;
 
-use db::rebuild::{ENode, corebuild, rebuild_table};
+use db::rebuild::{ENode, corebuild, rebuild_enode_table};
 use db::table::Table;
 use util::interner::StringInterner;
 use util::union_find::{ClassId, UnionFind};
@@ -276,6 +276,28 @@ fn add_decode(det: &[u32; 2], dep: &[u32; 1]) -> Term {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Interval {
+    value: ClassId,
+    low: i32,
+    high: i32,
+}
+
+fn interval_encode(interval: &Interval) -> ([u32; 1], [u32; 2]) {
+    unsafe { transmute(*interval) }
+}
+
+fn interval_decode(det: &[u32; 1], dep: &[u32; 2]) -> Interval {
+    #[allow(unnecessary_transmutes)]
+    unsafe {
+        Interval {
+            value: transmute(det[0]),
+            low: transmute(dep[0]),
+            high: transmute(dep[1]),
+        }
+    }
+}
+
 pub struct Graph {
     constant: Table<1, 1>,
     param: Table<1, 1>,
@@ -286,6 +308,9 @@ pub struct Graph {
     finish: Table<2, 1>,
     phi: Table<3, 1>,
     add: Table<2, 1>,
+
+    interval: Table<1, 2>,
+
     uf: UnionFind,
 }
 
@@ -301,6 +326,9 @@ impl Graph {
             finish: Table::new(interner.intern("finish")),
             phi: Table::new(interner.intern("ϕ")),
             add: Table::new(interner.intern("+")),
+
+            interval: Table::new(interner.intern("[]")),
+
             uf: UnionFind::new(),
         }
     }
@@ -309,74 +337,92 @@ impl Graph {
         match &term {
             Term::Constant { .. } => {
                 let (det, dep) = constant_encode(&term);
-                let new_dep = self.constant.insert_row(&det, &dep).clone();
-                if new_dep != dep {
-                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
-                }
+                let new_dep = self.constant.insert_row(&det, &dep, |new_dep, old_dep| {
+                    if new_dep != old_dep {
+                        unsafe { self.uf.merge(transmute(new_dep[0]), transmute(old_dep[0])) };
+                    }
+                    [old_dep[0]]
+                }).clone();
                 constant_decode(&det, &new_dep)
             }
             Term::Param { .. } => {
                 let (det, dep) = param_encode(&term);
-                let new_dep = self.param.insert_row(&det, &dep).clone();
-                if new_dep != dep {
-                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
-                }
+                let new_dep = self.param.insert_row(&det, &dep, |new_dep, old_dep| {
+                    if new_dep != old_dep {
+                        unsafe { self.uf.merge(transmute(new_dep[0]), transmute(old_dep[0])) };
+                    }
+                    [old_dep[0]]
+                }).clone();
                 param_decode(&det, &new_dep)
             }
             Term::Start { .. } => {
                 let (det, dep) = start_encode(&term);
-                let new_dep = self.start.insert_row(&det, &dep).clone();
-                if new_dep != dep {
-                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
-                }
+                let new_dep = self.start.insert_row(&det, &dep, |new_dep, old_dep| {
+                    if new_dep != old_dep {
+                        unsafe { self.uf.merge(transmute(new_dep[0]), transmute(old_dep[0])) };
+                    }
+                    [old_dep[0]]
+                }).clone();
                 start_decode(&det, &new_dep)
             }
             Term::Region { .. } => {
                 let (det, dep) = region_encode(&term);
-                let new_dep = self.region.insert_row(&det, &dep).clone();
-                if new_dep != dep {
-                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
-                }
+                let new_dep = self.region.insert_row(&det, &dep, |new_dep, old_dep| {
+                    if new_dep != old_dep {
+                        unsafe { self.uf.merge(transmute(new_dep[0]), transmute(old_dep[0])) };
+                    }
+                    [old_dep[0]]
+                }).clone();
                 region_decode(&det, &new_dep)
             }
             Term::Branch { .. } => {
                 let (det, dep) = branch_encode(&term);
-                let new_dep = self.branch.insert_row(&det, &dep).clone();
-                if new_dep != dep {
-                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
-                }
+                let new_dep = self.branch.insert_row(&det, &dep, |new_dep, old_dep| {
+                    if new_dep != old_dep {
+                        unsafe { self.uf.merge(transmute(new_dep[0]), transmute(old_dep[0])) };
+                    }
+                    [old_dep[0]]
+                }).clone();
                 branch_decode(&det, &new_dep)
             }
             Term::ControlProj { .. } => {
                 let (det, dep) = control_proj_encode(&term);
-                let new_dep = self.control_proj.insert_row(&det, &dep).clone();
-                if new_dep != dep {
-                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
-                }
+                let new_dep = self.control_proj.insert_row(&det, &dep, |new_dep, old_dep| {
+                    if new_dep != old_dep {
+                        unsafe { self.uf.merge(transmute(new_dep[0]), transmute(old_dep[0])) };
+                    }
+                    [old_dep[0]]
+                }).clone();
                 control_proj_decode(&det, &new_dep)
             }
             Term::Finish { .. } => {
                 let (det, dep) = finish_encode(&term);
-                let new_dep = self.finish.insert_row(&det, &dep).clone();
-                if new_dep != dep {
-                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
-                }
+                let new_dep = self.finish.insert_row(&det, &dep, |new_dep, old_dep| {
+                    if new_dep != old_dep {
+                        unsafe { self.uf.merge(transmute(new_dep[0]), transmute(old_dep[0])) };
+                    }
+                    [old_dep[0]]
+                }).clone();
                 finish_decode(&det, &new_dep)
             }
             Term::Phi { .. } => {
                 let (det, dep) = phi_encode(&term);
-                let new_dep = self.phi.insert_row(&det, &dep).clone();
-                if new_dep != dep {
-                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
-                }
+                let new_dep = self.phi.insert_row(&det, &dep, |new_dep, old_dep| {
+                    if new_dep != old_dep {
+                        unsafe { self.uf.merge(transmute(new_dep[0]), transmute(old_dep[0])) };
+                    }
+                    [old_dep[0]]
+                }).clone();
                 phi_decode(&det, &new_dep)
             }
             Term::Add { .. } => {
                 let (det, dep) = add_encode(&term);
-                let new_dep = self.add.insert_row(&det, &dep).clone();
-                if new_dep != dep {
-                    unsafe { self.merge(transmute(new_dep[0]), transmute(dep[0])) };
-                }
+                let new_dep = self.add.insert_row(&det, &dep, |new_dep, old_dep| {
+                    if new_dep != old_dep {
+                        unsafe { self.uf.merge(transmute(new_dep[0]), transmute(old_dep[0])) };
+                    }
+                    [old_dep[0]]
+                }).clone();
                 add_decode(&det, &new_dep)
             }
         }
@@ -418,30 +464,30 @@ impl Graph {
 
             corebuild(self.terms().collect(), &mut self.uf);
 
-            changed = rebuild_table(
+            changed = rebuild_enode_table(
                 &mut self.constant,
                 &mut self.uf,
                 constant_encode,
                 constant_decode,
             ) || changed;
             changed =
-                rebuild_table(&mut self.param, &mut self.uf, param_encode, param_decode) || changed;
+                rebuild_enode_table(&mut self.param, &mut self.uf, param_encode, param_decode) || changed;
             changed =
-                rebuild_table(&mut self.start, &mut self.uf, start_encode, start_decode) || changed;
-            changed = rebuild_table(&mut self.region, &mut self.uf, region_encode, region_decode)
+                rebuild_enode_table(&mut self.start, &mut self.uf, start_encode, start_decode) || changed;
+            changed = rebuild_enode_table(&mut self.region, &mut self.uf, region_encode, region_decode)
                 || changed;
-            changed = rebuild_table(&mut self.branch, &mut self.uf, branch_encode, branch_decode)
+            changed = rebuild_enode_table(&mut self.branch, &mut self.uf, branch_encode, branch_decode)
                 || changed;
-            changed = rebuild_table(
+            changed = rebuild_enode_table(
                 &mut self.control_proj,
                 &mut self.uf,
                 control_proj_encode,
                 control_proj_decode,
             ) || changed;
-            changed = rebuild_table(&mut self.finish, &mut self.uf, finish_encode, finish_decode)
+            changed = rebuild_enode_table(&mut self.finish, &mut self.uf, finish_encode, finish_decode)
                 || changed;
-            changed = rebuild_table(&mut self.phi, &mut self.uf, phi_encode, phi_decode) || changed;
-            changed = rebuild_table(&mut self.add, &mut self.uf, add_encode, add_decode) || changed;
+            changed = rebuild_enode_table(&mut self.phi, &mut self.uf, phi_encode, phi_decode) || changed;
+            changed = rebuild_enode_table(&mut self.add, &mut self.uf, add_encode, add_decode) || changed;
 
             if !changed {
                 break;
