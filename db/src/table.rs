@@ -102,6 +102,10 @@ impl<const DET_COLS: usize, const DEP_COLS: usize> Table<DET_COLS, DEP_COLS> {
         }
     }
 
+    pub fn map(&self, det: &[u32; DET_COLS]) -> Option<&[u32; DEP_COLS]> {
+        self.determine_map.get(det).map(|(_, dep)| *dep)
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = ([u32; DET_COLS], [u32; DEP_COLS])> + '_ {
         self.contents
             .as_ref()

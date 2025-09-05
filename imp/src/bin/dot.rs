@@ -52,6 +52,9 @@ pub fn dot(graph: &Graph) -> String {
     let node = |s: &mut String, name: &str, label: &str| {
         *s = format!("{}{} [label=\"{}\"]\n", s, name, label);
     };
+    let interval = |s: &mut String, name: &str, label: &str| {
+        *s = format!("{}{} [label=\"{}\", shape=\"diamond\"]\n", s, name, label);
+    };
     let link = |s: &mut String, src: &str, dst: ClassId| {
         *s = format!(
             "{}node_{} -> {} [ltail=\"cluster_{}\"]\n",
@@ -68,7 +71,7 @@ pub fn dot(graph: &Graph) -> String {
         use Term::*;
         let name = match term {
             Constant { value, .. } => format!("cons_{}", value as u32),
-            Param { index, .. } => format!("param_{}", index),
+            Param { start, index, .. } => format!("param_{}_{}", start.idx(), index),
             Start { .. } => "start".to_string(),
             Region { lhs, rhs, .. } => format!("region_{}_{}", lhs.idx(), rhs.idx()),
             Branch { pred, cond, .. } => format!("branch_{}_{}", pred.idx(), cond.idx()),
@@ -95,7 +98,10 @@ pub fn dot(graph: &Graph) -> String {
         node(&mut s, &name, &label);
         close(&mut s);
         match term {
-            Constant { .. } | Param { .. } | Start { .. } => {}
+            Constant { .. } | Start { .. } => {}
+            Param { start, .. } => {
+                link(&mut s, &name, start);
+            }
             Branch { pred, cond, .. } => {
                 link(&mut s, &name, pred);
                 link(&mut s, &name, cond);
@@ -119,6 +125,11 @@ pub fn dot(graph: &Graph) -> String {
                 link(&mut s, &name, rhs);
             }
         }
+    }
+    for i in graph.intervals() {
+        open(&mut s, i.value);
+        interval(&mut s, &format!("interval_{}", i.value.idx()), &format!("[{}, {}]", i.low, i.high));
+        close(&mut s);
     }
     close(&mut s);
     s

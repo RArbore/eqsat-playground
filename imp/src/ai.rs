@@ -56,12 +56,13 @@ impl AbstractState {
 }
 
 fn ai_func(func: &FunctionAST<'_>, graph: &mut Graph) {
-    let root = graph.makeset();
-    graph.insert(Term::Start { root });
-    let mut s = AbstractState::new(root);
+    let start = graph.makeset();
+    graph.insert(Term::Start { root: start });
+    let mut s = AbstractState::new(start);
     for (idx, iden) in func.params.as_ref().into_iter().enumerate() {
         let root = graph.makeset();
         graph.insert(Term::Param {
+            start,
             index: idx as u32,
             root,
         });
@@ -238,20 +239,13 @@ fn ai_expr(expr: &ExpressionAST<'_>, in_s: &AbstractState, graph: &mut Graph) ->
     use ExpressionAST::*;
     match expr {
         NumberLiteral(value) => {
-            let root = graph.makeset();
-            graph.insert(Term::Constant {
-                value: *value,
-                root,
-            });
-            graph.find(root)
+            graph.constant(*value)
         }
         Variable(iden) => *in_s.get(iden).unwrap(),
         Add(lhs, rhs) => {
             let lhs = ai_expr(lhs, in_s, graph);
             let rhs = ai_expr(rhs, in_s, graph);
-            let root = graph.makeset();
-            graph.insert(Term::Add { lhs, rhs, root });
-            graph.find(root)
+            graph.add(lhs, rhs)
         }
         _ => todo!(),
     }

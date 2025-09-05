@@ -13,6 +13,7 @@ pub enum Term {
         root: ClassId,
     },
     Param {
+        start: ClassId,
         index: u32,
         root: ClassId,
     },
@@ -76,7 +77,8 @@ impl ENode for Term {
                 value: *value,
                 root: uf.find(*root),
             },
-            Term::Param { index, root } => Term::Param {
+            Term::Param { start, index, root } => Term::Param {
+                start: uf.find(*start),
                 index: *index,
                 root: uf.find(*root),
             },
@@ -130,11 +132,11 @@ fn constant_encode(term: &Term) -> ([u32; 1], [u32; 1]) {
     unsafe { transmute(([*value], [*root])) }
 }
 
-fn param_encode(term: &Term) -> ([u32; 1], [u32; 1]) {
-    let Term::Param { index, root } = term else {
+fn param_encode(term: &Term) -> ([u32; 2], [u32; 1]) {
+    let Term::Param { start, index, root } = term else {
         panic!()
     };
-    unsafe { transmute(([*index], [*root])) }
+    unsafe { transmute(([*start, transmute(*index)], [*root])) }
 }
 
 fn start_encode(term: &Term) -> ([u32; 0], [u32; 1]) {
@@ -200,10 +202,11 @@ fn constant_decode(det: &[u32; 1], dep: &[u32; 1]) -> Term {
     }
 }
 
-fn param_decode(det: &[u32; 1], dep: &[u32; 1]) -> Term {
+fn param_decode(det: &[u32; 2], dep: &[u32; 1]) -> Term {
     unsafe {
         Term::Param {
-            index: transmute(det[0]),
+            start: transmute(det[0]),
+            index: transmute(det[1]),
             root: transmute(dep[0]),
         }
     }
@@ -279,9 +282,9 @@ fn add_decode(det: &[u32; 2], dep: &[u32; 1]) -> Term {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Interval {
-    value: ClassId,
-    low: i32,
-    high: i32,
+    pub value: ClassId,
+    pub low: i32,
+    pub high: i32,
 }
 
 impl Interval {
@@ -299,6 +302,10 @@ impl Interval {
             low: i32::MIN,
             high: i32::MAX,
         }
+    }
+
+    fn is_bottom(&self) -> bool {
+        self.low == i32::MIN && self.high == i32::MAX
     }
 
     fn join(&self, other: &Interval) -> Interval {
@@ -341,7 +348,7 @@ fn interval_decode(det: &[u32; 1], dep: &[u32; 2]) -> Interval {
 
 pub struct Graph {
     constant: Table<1, 1>,
-    param: Table<1, 1>,
+    param: Table<2, 1>,
     start: Table<0, 1>,
     region: Table<2, 1>,
     branch: Table<2, 1>,
@@ -496,6 +503,20 @@ impl Graph {
         }
     }
 
+    pub fn record_interval(&mut self, interval: Interval) -> Interval {
+        let (det, dep) = interval_encode(&interval);
+        let new_dep = self
+            .interval
+            .insert_row(&det, &dep, |new_dep, old_dep| {
+                interval_encode(
+                    &interval_decode(&det, new_dep).join(&interval_decode(&det, old_dep)),
+                )
+                .1
+            })
+            .clone();
+        interval_decode(&det, &new_dep)
+    }
+
     pub fn makeset(&mut self) -> ClassId {
         self.uf.makeset()
     }
@@ -526,10 +547,75 @@ impl Graph {
             .chain(self.add.iter().map(|row| add_decode(&row.0, &row.1)))
     }
 
+    pub fn intervals(&self) -> impl Iterator<Item = Interval> + '_ {
+        self.interval
+            .iter()
+            .map(|row| interval_decode(&row.0, &row.1))
+            .filter(|interval| !interval.is_bottom())
+    }
+
+    pub fn interval(&self, value: ClassId) -> Interval {
+        let bottom = Interval::bottom(value);
+        let (det, _) = interval_encode(&bottom);
+        if let Some(dep) = self.interval.map(&det) {
+            interval_decode(&det, dep)
+        } else {
+            bottom
+        }
+    }
+
+    pub fn constant(&mut self, value: i32) -> ClassId {
+        let root = self.makeset();
+        self.insert(Term::Constant { value, root });
+        let root = self.find(root);
+        self.record_interval(Interval {
+            value: root,
+            low: value,
+            high: value,
+        });
+        root
+    }
+
+    pub fn add(&mut self, lhs: ClassId, rhs: ClassId) -> ClassId {
+        let root = self.makeset();
+        self.insert(Term::Add { lhs, rhs, root });
+        let root = self.find(root);
+        let lhs_i = self.interval(lhs);
+        let rhs_i = self.interval(rhs);
+        let combined_interval = if let Some(low) = lhs_i.low.checked_add(rhs_i.low)
+            && let Some(high) = lhs_i.high.checked_add(rhs_i.high)
+        {
+            Interval {
+                value: root,
+                low,
+                high,
+            }
+        } else {
+            Interval::bottom(root)
+        };
+        self.record_interval(combined_interval);
+        root
+    }
+
+    pub fn stupid_constant_inference_rules(&mut self) {
+        let terms: Vec<_> = self.terms().collect();
+        for term in terms {
+            let det = [term.root().idx()];
+            if let Some(dep) = self.interval.map(&det) {
+                let interval = interval_decode(&det, dep);
+                if interval.low == interval.high {
+                    let cons_id = self.constant(interval.low);
+                    self.merge(term.root(), cons_id);
+                }
+            }
+        }
+    }
+
     pub fn rebuild(&mut self) {
         loop {
             let mut changed = false;
 
+            self.stupid_constant_inference_rules();
             corebuild(self.terms().collect(), &mut self.uf);
 
             changed = rebuild_enode_table(
