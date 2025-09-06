@@ -52,9 +52,6 @@ pub fn dot(graph: &Graph) -> String {
     let node = |s: &mut String, name: &str, label: &str| {
         *s = format!("{}{} [label=\"{}\"]\n", s, name, label);
     };
-    let interval = |s: &mut String, name: &str, label: &str| {
-        *s = format!("{}{} [label=\"{}\", shape=\"diamond\"]\n", s, name, label);
-    };
     let link = |s: &mut String, src: &str, dst: ClassId| {
         *s = format!(
             "{}node_{} -> {} [ltail=\"cluster_{}\"]\n",
@@ -125,11 +122,6 @@ pub fn dot(graph: &Graph) -> String {
                 link(&mut s, &name, rhs);
             }
         }
-    }
-    for i in graph.intervals() {
-        open(&mut s, i.value);
-        interval(&mut s, &format!("interval_{}", i.value.idx()), &format!("[{}, {}]", i.low, i.high));
-        close(&mut s);
     }
     close(&mut s);
     s

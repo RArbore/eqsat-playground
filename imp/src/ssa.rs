@@ -1,4 +1,3 @@
-use core::cmp::{max, min};
 use core::mem::transmute;
 
 use db::rebuild::{ENode, corebuild, rebuild_enode_table};
@@ -280,72 +279,6 @@ fn add_decode(det: &[u32; 2], dep: &[u32; 1]) -> Term {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Interval {
-    pub value: ClassId,
-    pub low: i32,
-    pub high: i32,
-}
-
-impl Interval {
-    fn top(value: ClassId) -> Interval {
-        Interval {
-            value,
-            low: 0,
-            high: 0,
-        }
-    }
-
-    fn bottom(value: ClassId) -> Interval {
-        Interval {
-            value,
-            low: i32::MIN,
-            high: i32::MAX,
-        }
-    }
-
-    fn is_bottom(&self) -> bool {
-        self.low == i32::MIN && self.high == i32::MAX
-    }
-
-    fn join(&self, other: &Interval) -> Interval {
-        assert_eq!(self.value, other.value);
-        if self.high < other.low || other.high < self.low {
-            Interval::top(self.value)
-        } else {
-            Interval {
-                value: self.value,
-                low: max(self.low, other.low),
-                high: min(self.high, other.high),
-            }
-        }
-    }
-
-    fn meet(&self, other: &Interval) -> Interval {
-        assert_eq!(self.value, other.value);
-        Interval {
-            value: self.value,
-            low: min(self.low, other.low),
-            high: max(self.high, other.high),
-        }
-    }
-}
-
-fn interval_encode(interval: &Interval) -> ([u32; 1], [u32; 2]) {
-    unsafe { transmute(*interval) }
-}
-
-fn interval_decode(det: &[u32; 1], dep: &[u32; 2]) -> Interval {
-    #[allow(unnecessary_transmutes)]
-    unsafe {
-        Interval {
-            value: transmute(det[0]),
-            low: transmute(dep[0]),
-            high: transmute(dep[1]),
-        }
-    }
-}
-
 pub struct Graph {
     constant: Table<1, 1>,
     param: Table<2, 1>,
@@ -356,8 +289,6 @@ pub struct Graph {
     finish: Table<2, 1>,
     phi: Table<3, 1>,
     add: Table<2, 1>,
-
-    interval: Table<1, 2>,
 
     uf: UnionFind,
 }
@@ -374,8 +305,6 @@ impl Graph {
             finish: Table::new(interner.intern("finish")),
             phi: Table::new(interner.intern("ϕ")),
             add: Table::new(interner.intern("+")),
-
-            interval: Table::new(interner.intern("[]")),
 
             uf: UnionFind::new(),
         }
@@ -503,20 +432,6 @@ impl Graph {
         }
     }
 
-    pub fn record_interval(&mut self, interval: Interval) -> Interval {
-        let (det, dep) = interval_encode(&interval);
-        let new_dep = self
-            .interval
-            .insert_row(&det, &dep, |new_dep, old_dep| {
-                interval_encode(
-                    &interval_decode(&det, new_dep).join(&interval_decode(&det, old_dep)),
-                )
-                .1
-            })
-            .clone();
-        interval_decode(&det, &new_dep)
-    }
-
     pub fn makeset(&mut self) -> ClassId {
         self.uf.makeset()
     }
@@ -547,32 +462,10 @@ impl Graph {
             .chain(self.add.iter().map(|row| add_decode(&row.0, &row.1)))
     }
 
-    pub fn intervals(&self) -> impl Iterator<Item = Interval> + '_ {
-        self.interval
-            .iter()
-            .map(|row| interval_decode(&row.0, &row.1))
-            .filter(|interval| !interval.is_bottom())
-    }
-
-    pub fn interval(&self, value: ClassId) -> Interval {
-        let bottom = Interval::bottom(value);
-        let (det, _) = interval_encode(&bottom);
-        if let Some(dep) = self.interval.map(&det) {
-            interval_decode(&det, dep)
-        } else {
-            bottom
-        }
-    }
-
     pub fn constant(&mut self, value: i32) -> ClassId {
         let root = self.makeset();
         self.insert(Term::Constant { value, root });
         let root = self.find(root);
-        self.record_interval(Interval {
-            value: root,
-            low: value,
-            high: value,
-        });
         root
     }
 
@@ -580,42 +473,13 @@ impl Graph {
         let root = self.makeset();
         self.insert(Term::Add { lhs, rhs, root });
         let root = self.find(root);
-        let lhs_i = self.interval(lhs);
-        let rhs_i = self.interval(rhs);
-        let combined_interval = if let Some(low) = lhs_i.low.checked_add(rhs_i.low)
-            && let Some(high) = lhs_i.high.checked_add(rhs_i.high)
-        {
-            Interval {
-                value: root,
-                low,
-                high,
-            }
-        } else {
-            Interval::bottom(root)
-        };
-        self.record_interval(combined_interval);
         root
-    }
-
-    pub fn stupid_constant_inference_rules(&mut self) {
-        let terms: Vec<_> = self.terms().collect();
-        for term in terms {
-            let det = [term.root().idx()];
-            if let Some(dep) = self.interval.map(&det) {
-                let interval = interval_decode(&det, dep);
-                if interval.low == interval.high {
-                    let cons_id = self.constant(interval.low);
-                    self.merge(term.root(), cons_id);
-                }
-            }
-        }
     }
 
     pub fn rebuild(&mut self) {
         loop {
             let mut changed = false;
 
-            self.stupid_constant_inference_rules();
             corebuild(self.terms().collect(), &mut self.uf);
 
             changed = rebuild_enode_table(
