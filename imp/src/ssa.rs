@@ -1,6 +1,7 @@
 use core::cell::RefCell;
+use core::hash::Hash;
 use core::mem::transmute;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use db::rebuild::{ENode, corebuild, rebuild_enode_table};
 use db::table::Table;
@@ -511,7 +512,12 @@ impl Graph {
 
     pub fn phi(&mut self, region: ClassId, lhs: ClassId, rhs: ClassId) -> ClassId {
         let root = self.makeset();
-        self.insert(Term::Phi { region, lhs, rhs, root });
+        self.insert(Term::Phi {
+            region,
+            lhs,
+            rhs,
+            root,
+        });
         let root = self.find(root);
         root
     }
@@ -581,15 +587,25 @@ pub struct SSADomain<'a> {
     ssa_values: BTreeMap<IdentifierId, ClassId>,
     pred: ClassId,
     graph: &'a RefCell<Graph>,
+    static_phis:
+        &'a RefCell<HashMap<SSADomain<'a>, (ClassId, BTreeMap<IdentifierId, (ClassId, ClassId)>)>>,
     finished: Option<ClassId>,
 }
 
 impl<'a> SSADomain<'a> {
-    pub fn new(graph: &'a RefCell<Graph>, start: ClassId, params: Vec<(IdentifierId, ClassId)>) -> Self {
+    pub fn new(
+        graph: &'a RefCell<Graph>,
+        static_phis: &'a RefCell<
+            HashMap<SSADomain<'a>, (ClassId, BTreeMap<IdentifierId, (ClassId, ClassId)>)>,
+        >,
+        start: ClassId,
+        params: Vec<(IdentifierId, ClassId)>,
+    ) -> Self {
         Self {
             ssa_values: params.into_iter().collect(),
             pred: start,
             graph,
+            static_phis,
             finished: None,
         }
     }
@@ -597,7 +613,19 @@ impl<'a> SSADomain<'a> {
 
 impl PartialEq for SSADomain<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.ssa_values == other.ssa_values && self.pred == other.pred && self.finished == other.finished
+        self.ssa_values == other.ssa_values
+            && self.pred == other.pred
+            && self.finished == other.finished
+    }
+}
+
+impl Eq for SSADomain<'_> {}
+
+impl Hash for SSADomain<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.ssa_values.hash(state);
+        self.pred.hash(state);
+        self.finished.hash(state);
     }
 }
 
@@ -652,7 +680,10 @@ impl AbstractDomain for SSADomain<'_> {
                 if *self_ssa == *other_ssa {
                     merged.insert(*self_iden, *self_ssa);
                 } else {
-                    merged.insert(*self_iden, self.graph.borrow_mut().phi(region, *self_ssa, *other_ssa));
+                    merged.insert(
+                        *self_iden,
+                        self.graph.borrow_mut().phi(region, *self_ssa, *other_ssa),
+                    );
                 }
             }
         }
@@ -660,12 +691,73 @@ impl AbstractDomain for SSADomain<'_> {
             ssa_values: merged,
             pred: region,
             graph: self.graph,
+            static_phis: self.static_phis,
             finished: None,
         }
     }
 
-    fn widen(&self, other: &Self) -> Self {
-        todo!()
+    fn widen(&self, other: &Self) -> (Self, bool) {
+        assert!(self.finished.is_none());
+        assert!(other.finished.is_none());
+
+        if self.pred == other.pred {
+            assert_eq!(self.ssa_values, other.ssa_values);
+            let region = self.graph.borrow_mut().makeset();
+            self.static_phis
+                .borrow_mut()
+                .insert(self.clone(), (region, BTreeMap::new()));
+            let mut ad = self.clone();
+            ad.pred = region;
+            (ad, true)
+        } else {
+            let mut static_phis_borrow = self.static_phis.borrow_mut();
+            let static_phis = static_phis_borrow.get_mut(self).unwrap();
+            let region = static_phis.0;
+            let static_phis = &mut static_phis.1;
+            self.graph.borrow_mut().insert(Term::Region {
+                lhs: self.pred,
+                rhs: other.pred,
+                root: region,
+            });
+
+            let mut merged = BTreeMap::new();
+            let mut changed = false;
+            for (self_iden, self_ssa) in &self.ssa_values {
+                if let Some(other_ssa) = other.ssa_values.get(self_iden) {
+                    if *self_ssa == *other_ssa {
+                        merged.insert(*self_iden, *self_ssa);
+                    } else if let Some(entry) = static_phis.get_mut(self_iden) {
+                        merged.insert(*self_iden, entry.0);
+                        let last_expr = self.graph.borrow_mut().phi(region, *self_ssa, *other_ssa);
+                        changed = changed || entry.1 != last_expr;
+                        entry.1 = last_expr;
+                    } else {
+                        let static_phi = self.graph.borrow_mut().makeset();
+                        let last_expr = self.graph.borrow_mut().phi(region, *self_ssa, *other_ssa);
+                        static_phis.insert(*self_iden, (static_phi, last_expr));
+                        merged.insert(*self_iden, static_phi);
+                        changed = true;
+                    }
+                }
+            }
+
+            if !changed {
+                for (_, (static_phi, last_expr)) in static_phis {
+                    self.graph.borrow_mut().merge(*static_phi, *last_expr);
+                }
+            }
+
+            (
+                Self {
+                    ssa_values: merged,
+                    pred: region,
+                    graph: self.graph,
+                    static_phis: self.static_phis,
+                    finished: None,
+                },
+                changed,
+            )
+        }
     }
 }
 

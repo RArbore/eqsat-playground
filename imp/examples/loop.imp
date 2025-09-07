@@ -1,10 +1,8 @@
 fn loop(x) {
-	y = 0;
 	while x {
-		y = y + 1;
 		x = x + -1;
 	}
-	return y;
+	return x;
 }
 
 fn double_loop(x) {

@@ -1,4 +1,5 @@
 use core::cell::RefCell;
+use std::collections::HashMap;
 
 use util::interner::{IdentifierId, StringInterner};
 
@@ -15,7 +16,7 @@ pub trait AbstractDomain: Clone + PartialEq {
     fn branch(&self, cond: Self::Value) -> (Self, Self);
     fn finish_with(&mut self, val: Self::Value);
     fn join(&self, other: &Self) -> Self;
-    fn widen(&self, other: &Self) -> Self;
+    fn widen(&self, other: &Self) -> (Self, bool);
 }
 
 pub fn abstract_interpret(program: &ProgramAST<'_>, interner: &mut StringInterner) -> Vec<Graph> {
@@ -41,7 +42,8 @@ pub fn abstract_interpret(program: &ProgramAST<'_>, interner: &mut StringInterne
         println!("{:?}", ai_block(&func.block, &interval));
 
         let graph = RefCell::new(graph);
-        let domain = SSADomain::new(&graph, start, params);
+        let static_phis = RefCell::new(HashMap::new());
+        let domain = SSADomain::new(&graph, &static_phis, start, params);
         ai_block(&func.block, &domain);
         graphs.push(graph.into_inner());
     }
@@ -78,86 +80,16 @@ fn ai_stmt<AD: AbstractDomain>(stmt: &StatementAST<'_>, ad: &AD) -> AD {
         While(cond, body) => {
             let mut iter = ad.clone();
             loop {
-                let top = ad.widen(&iter);
+                let (top, widening) = ad.widen(&iter);
                 let cond = top.interp_expr(cond);
                 let (cont, exit) = top.branch(cond);
                 let bottom = ai_block(body, &cont);
-                if bottom == iter {
+                if bottom == iter && !widening {
                     break exit;
                 } else {
                     iter = bottom;
                 }
             }
-            //let loop_cond_region = graph.makeset();
-            //let loop_cond_branch = graph.makeset();
-            //let loop_cond_proj_true = graph.makeset();
-            //let loop_cond_proj_false = graph.makeset();
-            //
-            //let mut prev_state = None;
-            //let mut static_phis = BTreeMap::new();
-            //let mut last_exprs = BTreeMap::new();
-            //let mut changed = true;
-            //let (cond, bottom_pred, break_s) = loop {
-            //    let mut top_s = if let Some(ref prev_state) = prev_state {
-            //        changed = false;
-            //        let mut merged_s = merge_down(loop_cond_region, in_s, &prev_state, graph);
-            //        for (iden, merged_expr) in merged_s.iter_mut() {
-            //            if let Some(old_expr) = prev_state.get(iden)
-            //                && *merged_expr != *old_expr
-            //            {
-            //                if let Some(last_expr) = last_exprs.insert(*iden, *merged_expr) {
-            //                    changed = changed || last_expr != *merged_expr;
-            //                }
-            //
-            //                if !static_phis.contains_key(iden) {
-            //                    let static_phi = graph.makeset();
-            //                    static_phis.insert(*iden, static_phi);
-            //                    changed = true;
-            //                }
-            //                *merged_expr = static_phis[&iden];
-            //            }
-            //        }
-            //        merged_s
-            //    } else {
-            //        in_s.clone()
-            //    };
-            //
-            //    if !changed {
-            //        for (iden, static_phi) in static_phis {
-            //            graph.merge(static_phi, last_exprs[&iden]);
-            //        }
-            //        top_s.set_pred(loop_cond_branch);
-            //        let cond = ai_expr(cond, &top_s, graph);
-            //        top_s.set_pred(loop_cond_proj_false);
-            //        break (cond, prev_state.unwrap().pred(), top_s);
-            //    }
-            //
-            //    top_s.set_pred(loop_cond_proj_true);
-            //    let bottom_s = ai_block(body, &top_s, graph);
-            //    prev_state = Some(bottom_s);
-            //};
-            //
-            //graph.insert(Term::Region {
-            //    lhs: in_s.pred(),
-            //    rhs: bottom_pred,
-            //    root: loop_cond_region,
-            //});
-            //graph.insert(Term::Branch {
-            //    pred: loop_cond_region,
-            //    cond,
-            //    root: loop_cond_branch,
-            //});
-            //graph.insert(Term::ControlProj {
-            //    pred: loop_cond_branch,
-            //    index: 0,
-            //    root: loop_cond_proj_false,
-            //});
-            //graph.insert(Term::ControlProj {
-            //    pred: loop_cond_branch,
-            //    index: 1,
-            //    root: loop_cond_proj_true,
-            //});
-            //break_s
         }
         Return(expr) => {
             let mut ad = ad.clone();
@@ -194,7 +126,7 @@ mod tests {
         graphs[0].rebuild();
         assert_eq!(
             graphs[0].dump(&interner),
-            "cons([4294967295]) -> [6]\nparam([0, 0]) -> [1]\nstart([]) -> [0]\nregion([0, 4]) -> [2]\nbranch([2, 9]) -> [3]\nπ([3, 0]) -> [5]\nπ([3, 1]) -> [4]\nfinish([5, 9]) -> [16]\nϕ([2, 1, 7]) -> [8]\nϕ([2, 1, 11]) -> [9]\n+([1, 6]) -> [7]\n+([9, 6]) -> [11]\n",
+            "cons([4294967295]) -> [6]\nparam([0, 0]) -> [1]\nstart([]) -> [0]\nregion([0, 4]) -> [2]\nregion([0, 11]) -> [2]\nbranch([2, 1]) -> [3]\nbranch([2, 8]) -> [10]\nπ([3, 1]) -> [4]\nπ([3, 0]) -> [5]\nπ([10, 1]) -> [11]\nπ([10, 0]) -> [12]\nfinish([12, 8]) -> [27]\nϕ([2, 1, 7]) -> [9]\nϕ([2, 1, 14]) -> [8]\n+([1, 6]) -> [7]\n+([8, 6]) -> [14]\n",
         );
     }
 }

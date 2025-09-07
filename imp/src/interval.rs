@@ -44,8 +44,16 @@ impl Interval {
 
     fn widen(&self, other: &Interval) -> Self {
         Self {
-            low: if self.low <= other.low { self.low } else { i32::MIN },
-            high: if self.high >= other.high { self.high } else { i32::MAX },
+            low: if self.low <= other.low {
+                self.low
+            } else {
+                i32::MIN
+            },
+            high: if self.high >= other.high {
+                self.high
+            } else {
+                i32::MAX
+            },
         }
     }
 }
@@ -74,7 +82,10 @@ impl AbstractDomain for IntervalDomain {
     fn interp_expr(&self, expr: &ExpressionAST<'_>) -> Interval {
         use ExpressionAST::*;
         match expr {
-            NumberLiteral(value) => Interval { low: *value, high: *value },
+            NumberLiteral(value) => Interval {
+                low: *value,
+                high: *value,
+            },
             Variable(iden) => self.get(*iden),
             Add(lhs, rhs) => {
                 let lhs = self.interp_expr(lhs);
@@ -124,7 +135,7 @@ impl AbstractDomain for IntervalDomain {
         }
     }
 
-    fn widen(&self, other: &Self) -> Self {
+    fn widen(&self, other: &Self) -> (Self, bool) {
         assert!(self.finished.is_none());
         assert!(other.finished.is_none());
         let mut intervals = BTreeMap::new();
@@ -133,9 +144,12 @@ impl AbstractDomain for IntervalDomain {
                 intervals.insert(*self_iden, self_interval.widen(other_interval));
             }
         }
-        IntervalDomain {
-            intervals,
-            finished: None,
-        }
+        (
+            IntervalDomain {
+                intervals,
+                finished: None,
+            },
+            false,
+        )
     }
 }
