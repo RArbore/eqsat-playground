@@ -3,9 +3,10 @@ use core::cell::RefCell;
 use util::interner::{IdentifierId, StringInterner};
 
 use crate::ast::{BlockAST, ExpressionAST, ProgramAST, StatementAST};
+use crate::interval::IntervalDomain;
 use crate::ssa::{Graph, SSADomain, Term};
 
-pub trait AbstractDomain: Clone {
+pub trait AbstractDomain: Clone + PartialEq {
     type Value;
 
     fn interp_expr(&self, expr: &ExpressionAST<'_>) -> Self::Value;
@@ -24,6 +25,7 @@ pub fn abstract_interpret(program: &ProgramAST<'_>, interner: &mut StringInterne
         let start = graph.makeset();
         graph.insert(Term::Start { root: start });
         let mut params = vec![];
+        let mut param_idens = vec![];
         for (idx, iden) in func.params.as_ref().into_iter().enumerate() {
             let root = graph.makeset();
             graph.insert(Term::Param {
@@ -32,7 +34,12 @@ pub fn abstract_interpret(program: &ProgramAST<'_>, interner: &mut StringInterne
                 root,
             });
             params.push((*iden, graph.find(root)));
+            param_idens.push(*iden);
         }
+
+        let interval = IntervalDomain::new(param_idens);
+        println!("{:?}", ai_block(&func.block, &interval));
+
         let graph = RefCell::new(graph);
         let domain = SSADomain::new(&graph, start, params);
         ai_block(&func.block, &domain);
@@ -69,6 +76,18 @@ fn ai_stmt<AD: AbstractDomain>(stmt: &StatementAST<'_>, ad: &AD) -> AD {
             true_ad.join(&false_ad)
         }
         While(cond, body) => {
+            let mut iter = ad.clone();
+            loop {
+                let top = ad.widen(&iter);
+                let cond = top.interp_expr(cond);
+                let (cont, exit) = top.branch(cond);
+                let bottom = ai_block(body, &cont);
+                if bottom == iter {
+                    break exit;
+                } else {
+                    iter = bottom;
+                }
+            }
             //let loop_cond_region = graph.makeset();
             //let loop_cond_branch = graph.makeset();
             //let loop_cond_proj_true = graph.makeset();
@@ -139,7 +158,6 @@ fn ai_stmt<AD: AbstractDomain>(stmt: &StatementAST<'_>, ad: &AD) -> AD {
             //    root: loop_cond_proj_true,
             //});
             //break_s
-            todo!()
         }
         Return(expr) => {
             let mut ad = ad.clone();

@@ -581,7 +581,7 @@ pub struct SSADomain<'a> {
     ssa_values: BTreeMap<IdentifierId, ClassId>,
     pred: ClassId,
     graph: &'a RefCell<Graph>,
-    returned: Option<ClassId>,
+    finished: Option<ClassId>,
 }
 
 impl<'a> SSADomain<'a> {
@@ -590,8 +590,14 @@ impl<'a> SSADomain<'a> {
             ssa_values: params.into_iter().collect(),
             pred: start,
             graph,
-            returned: None,
+            finished: None,
         }
+    }
+}
+
+impl PartialEq for SSADomain<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.ssa_values == other.ssa_values && self.pred == other.pred && self.finished == other.finished
     }
 }
 
@@ -632,13 +638,13 @@ impl AbstractDomain for SSADomain<'_> {
     }
 
     fn finish_with(&mut self, val: ClassId) {
-        self.returned = Some(self.graph.borrow_mut().finish(self.pred, val));
+        self.finished = Some(self.graph.borrow_mut().finish(self.pred, val));
     }
 
     fn join(&self, other: &Self) -> Self {
         assert_ne!(self.pred, other.pred);
-        assert!(self.returned.is_none());
-        assert!(other.returned.is_none());
+        assert!(self.finished.is_none());
+        assert!(other.finished.is_none());
         let region = self.graph.borrow_mut().region(self.pred, other.pred);
         let mut merged = BTreeMap::new();
         for (self_iden, self_ssa) in &self.ssa_values {
@@ -654,7 +660,7 @@ impl AbstractDomain for SSADomain<'_> {
             ssa_values: merged,
             pred: region,
             graph: self.graph,
-            returned: None,
+            finished: None,
         }
     }
 
