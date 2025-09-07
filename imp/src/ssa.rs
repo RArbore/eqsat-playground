@@ -488,6 +488,20 @@ impl Graph {
         root
     }
 
+    pub fn branch(&mut self, pred: ClassId, cond: ClassId) -> ClassId {
+        let root = self.makeset();
+        self.insert(Term::Branch { pred, cond, root });
+        let root = self.find(root);
+        root
+    }
+
+    pub fn control_proj(&mut self, pred: ClassId, index: u32) -> ClassId {
+        let root = self.makeset();
+        self.insert(Term::ControlProj { pred, index, root });
+        let root = self.find(root);
+        root
+    }
+
     pub fn finish(&mut self, pred: ClassId, value: ClassId) -> ClassId {
         let root = self.makeset();
         self.insert(Term::Finish { pred, value, root });
@@ -606,6 +620,21 @@ impl AbstractDomain for SSADomain<'_> {
         self.ssa_values.insert(iden, val);
     }
 
+    fn branch(&self, cond: ClassId) -> (Self, Self) {
+        let branch = self.graph.borrow_mut().branch(self.pred, cond);
+        let true_proj = self.graph.borrow_mut().control_proj(branch, 1);
+        let false_proj = self.graph.borrow_mut().control_proj(branch, 0);
+        let mut true_ad = self.clone();
+        let mut false_ad = self.clone();
+        true_ad.pred = true_proj;
+        false_ad.pred = false_proj;
+        (true_ad, false_ad)
+    }
+
+    fn finish_with(&mut self, val: ClassId) {
+        self.returned = Some(self.graph.borrow_mut().finish(self.pred, val));
+    }
+
     fn join(&self, other: &Self) -> Self {
         assert_ne!(self.pred, other.pred);
         assert!(self.returned.is_none());
@@ -631,10 +660,6 @@ impl AbstractDomain for SSADomain<'_> {
 
     fn widen(&self, other: &Self) -> Self {
         todo!()
-    }
-
-    fn finish_with(&mut self, val: ClassId) {
-        self.returned = Some(self.graph.borrow_mut().finish(self.pred, val));
     }
 }
 

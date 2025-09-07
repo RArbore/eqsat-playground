@@ -11,9 +11,10 @@ pub trait AbstractDomain: Clone {
     fn interp_expr(&self, expr: &ExpressionAST<'_>) -> Self::Value;
     fn get(&self, iden: IdentifierId) -> Self::Value;
     fn assign(&mut self, iden: IdentifierId, val: Self::Value);
+    fn branch(&self, cond: Self::Value) -> (Self, Self);
+    fn finish_with(&mut self, val: Self::Value);
     fn join(&self, other: &Self) -> Self;
     fn widen(&self, other: &Self) -> Self;
-    fn finish_with(&mut self, val: Self::Value);
 }
 
 pub fn abstract_interpret(program: &ProgramAST<'_>, interner: &mut StringInterner) -> Vec<Graph> {
@@ -59,44 +60,13 @@ fn ai_stmt<AD: AbstractDomain>(stmt: &StatementAST<'_>, ad: &AD) -> AD {
             ad
         }
         IfElse(cond, lhs, rhs) => {
-            //let cond = ai_expr(cond, in_s, graph);
-            //let pred = in_s.pred();
-            //let mut root = graph.makeset();
-            //graph.insert(Term::Branch { pred, cond, root });
-            //
-            //root = graph.find(root);
-            //let lhs_root = graph.makeset();
-            //graph.insert(Term::ControlProj {
-            //    pred: root,
-            //    index: 1,
-            //    root: lhs_root,
-            //});
-            //let mut lhs_s = in_s.clone();
-            //lhs_s.set_pred(lhs_root);
-            //let lhs_s = ai_block(lhs, &lhs_s, graph);
-            //
-            //let rhs_root = graph.makeset();
-            //graph.insert(Term::ControlProj {
-            //    pred: root,
-            //    index: 0,
-            //    root: rhs_root,
-            //});
-            //let mut rhs_s = in_s.clone();
-            //rhs_s.set_pred(rhs_root);
-            //let rhs_s = if let Some(rhs) = rhs {
-            //    &ai_block(rhs, &rhs_s, graph)
-            //} else {
-            //    &rhs_s
-            //};
-            //
-            //let root = graph.makeset();
-            //graph.insert(Term::Region {
-            //    lhs: lhs_s.pred(),
-            //    rhs: rhs_s.pred(),
-            //    root,
-            //});
-            //merge_down(root, &lhs_s, &rhs_s, graph)
-            todo!()
+            let value = ad.interp_expr(cond);
+            let (true_ad, mut false_ad) = ad.branch(value);
+            let true_ad = ai_block(lhs, &true_ad);
+            if let Some(rhs) = rhs {
+                false_ad = ai_block(rhs, &false_ad);
+            }
+            true_ad.join(&false_ad)
         }
         While(cond, body) => {
             //let loop_cond_region = graph.makeset();
