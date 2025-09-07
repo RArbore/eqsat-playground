@@ -1,253 +1,182 @@
-use std::collections::BTreeMap;
+use core::cell::RefCell;
 
 use util::interner::{IdentifierId, StringInterner};
-use util::union_find::ClassId;
 
-use crate::ast::{BlockAST, ExpressionAST, FunctionAST, ProgramAST, StatementAST};
-use crate::ssa::{Graph, Term};
+use crate::ast::{BlockAST, ExpressionAST, ProgramAST, StatementAST};
+use crate::ssa::{Graph, SSADomain, Term};
+
+pub trait AbstractDomain: Clone {
+    type Value;
+
+    fn interp_expr(&self, expr: &ExpressionAST<'_>) -> Self::Value;
+    fn get(&self, iden: IdentifierId) -> Self::Value;
+    fn assign(&mut self, iden: IdentifierId, val: Self::Value);
+    fn join(&self, other: &Self) -> Self;
+    fn widen(&self, other: &Self) -> Self;
+    fn finish_with(&mut self, val: Self::Value);
+}
 
 pub fn abstract_interpret(program: &ProgramAST<'_>, interner: &mut StringInterner) -> Vec<Graph> {
     let mut graphs = vec![];
     for func in program.funcs.as_ref() {
         let mut graph = Graph::new(interner);
-        ai_func(func, &mut graph);
-        graphs.push(graph);
+        let start = graph.makeset();
+        graph.insert(Term::Start { root: start });
+        let mut params = vec![];
+        for (idx, iden) in func.params.as_ref().into_iter().enumerate() {
+            let root = graph.makeset();
+            graph.insert(Term::Param {
+                start,
+                index: idx as u32,
+                root,
+            });
+            params.push((*iden, graph.find(root)));
+        }
+        let graph = RefCell::new(graph);
+        let domain = SSADomain::new(&graph, start, params);
+        ai_block(&func.block, &domain);
+        graphs.push(graph.into_inner());
     }
     graphs
 }
 
-#[derive(Clone)]
-struct AbstractState {
-    vars: BTreeMap<IdentifierId, ClassId>,
-    pred: ClassId,
-}
-
-impl AbstractState {
-    fn new(start: ClassId) -> Self {
-        Self {
-            vars: BTreeMap::new(),
-            pred: start,
-        }
-    }
-
-    fn insert(&mut self, iden: IdentifierId, value: ClassId) -> Option<ClassId> {
-        self.vars.insert(iden, value)
-    }
-
-    fn get(&self, iden: &IdentifierId) -> Option<&ClassId> {
-        self.vars.get(iden)
-    }
-
-    fn iter(&self) -> impl Iterator<Item = (&IdentifierId, &ClassId)> {
-        self.vars.iter()
-    }
-
-    fn iter_mut(&mut self) -> impl Iterator<Item = (&IdentifierId, &mut ClassId)> {
-        self.vars.iter_mut()
-    }
-
-    fn pred(&self) -> ClassId {
-        self.pred
-    }
-
-    fn set_pred(&mut self, pred: ClassId) {
-        self.pred = pred;
-    }
-}
-
-fn ai_func(func: &FunctionAST<'_>, graph: &mut Graph) {
-    let start = graph.makeset();
-    graph.insert(Term::Start { root: start });
-    let mut s = AbstractState::new(start);
-    for (idx, iden) in func.params.as_ref().into_iter().enumerate() {
-        let root = graph.makeset();
-        graph.insert(Term::Param {
-            start,
-            index: idx as u32,
-            root,
-        });
-        s.insert(*iden, graph.find(root));
-    }
-    ai_block(&func.block, &s, graph);
-}
-
-fn ai_block(block: &BlockAST<'_>, in_s: &AbstractState, graph: &mut Graph) -> AbstractState {
-    let mut s = in_s.clone();
+fn ai_block<AD: AbstractDomain>(block: &BlockAST<'_>, ad: &AD) -> AD {
+    let mut ad = ad.clone();
     for stmt in block.stmts.as_ref() {
-        s = ai_stmt(stmt, &s, graph);
+        ad = ai_stmt(stmt, &ad);
     }
-    s
+    ad
 }
 
-fn ai_stmt(stmt: &StatementAST<'_>, in_s: &AbstractState, graph: &mut Graph) -> AbstractState {
-    let merge_down =
-        |region: ClassId, lhs_s: &AbstractState, rhs_s: &AbstractState, graph: &mut Graph| {
-            let mut merged_s = AbstractState::new(region);
-            for (lhs_iden, lhs_expr) in lhs_s.iter() {
-                if let Some(rhs_expr) = rhs_s.get(&lhs_iden) {
-                    if *lhs_expr == *rhs_expr {
-                        merged_s.insert(*lhs_iden, *lhs_expr);
-                    } else {
-                        let root = graph.makeset();
-                        graph.insert(Term::Phi {
-                            region,
-                            lhs: *lhs_expr,
-                            rhs: *rhs_expr,
-                            root,
-                        });
-                        merged_s.insert(*lhs_iden, graph.find(root));
-                    }
-                }
-            }
-            merged_s
-        };
-
+fn ai_stmt<AD: AbstractDomain>(stmt: &StatementAST<'_>, ad: &AD) -> AD {
     use StatementAST::*;
     match stmt {
-        Block(block) => ai_block(block, in_s, graph),
+        Block(block) => ai_block(block, ad),
         Assign(iden, expr) => {
-            let expr = ai_expr(expr, in_s, graph);
-            let mut s = in_s.clone();
-            s.insert(*iden, expr);
-            s
+            let mut ad = ad.clone();
+            let value = ad.interp_expr(expr);
+            ad.assign(*iden, value);
+            ad
         }
         IfElse(cond, lhs, rhs) => {
-            let cond = ai_expr(cond, in_s, graph);
-            let pred = in_s.pred();
-            let mut root = graph.makeset();
-            graph.insert(Term::Branch { pred, cond, root });
-
-            root = graph.find(root);
-            let lhs_root = graph.makeset();
-            graph.insert(Term::ControlProj {
-                pred: root,
-                index: 1,
-                root: lhs_root,
-            });
-            let mut lhs_s = in_s.clone();
-            lhs_s.set_pred(lhs_root);
-            let lhs_s = ai_block(lhs, &lhs_s, graph);
-
-            let rhs_root = graph.makeset();
-            graph.insert(Term::ControlProj {
-                pred: root,
-                index: 0,
-                root: rhs_root,
-            });
-            let mut rhs_s = in_s.clone();
-            rhs_s.set_pred(rhs_root);
-            let rhs_s = if let Some(rhs) = rhs {
-                &ai_block(rhs, &rhs_s, graph)
-            } else {
-                &rhs_s
-            };
-
-            let root = graph.makeset();
-            graph.insert(Term::Region {
-                lhs: lhs_s.pred(),
-                rhs: rhs_s.pred(),
-                root,
-            });
-            merge_down(root, &lhs_s, &rhs_s, graph)
+            //let cond = ai_expr(cond, in_s, graph);
+            //let pred = in_s.pred();
+            //let mut root = graph.makeset();
+            //graph.insert(Term::Branch { pred, cond, root });
+            //
+            //root = graph.find(root);
+            //let lhs_root = graph.makeset();
+            //graph.insert(Term::ControlProj {
+            //    pred: root,
+            //    index: 1,
+            //    root: lhs_root,
+            //});
+            //let mut lhs_s = in_s.clone();
+            //lhs_s.set_pred(lhs_root);
+            //let lhs_s = ai_block(lhs, &lhs_s, graph);
+            //
+            //let rhs_root = graph.makeset();
+            //graph.insert(Term::ControlProj {
+            //    pred: root,
+            //    index: 0,
+            //    root: rhs_root,
+            //});
+            //let mut rhs_s = in_s.clone();
+            //rhs_s.set_pred(rhs_root);
+            //let rhs_s = if let Some(rhs) = rhs {
+            //    &ai_block(rhs, &rhs_s, graph)
+            //} else {
+            //    &rhs_s
+            //};
+            //
+            //let root = graph.makeset();
+            //graph.insert(Term::Region {
+            //    lhs: lhs_s.pred(),
+            //    rhs: rhs_s.pred(),
+            //    root,
+            //});
+            //merge_down(root, &lhs_s, &rhs_s, graph)
+            todo!()
         }
         While(cond, body) => {
-            let loop_cond_region = graph.makeset();
-            let loop_cond_branch = graph.makeset();
-            let loop_cond_proj_true = graph.makeset();
-            let loop_cond_proj_false = graph.makeset();
-
-            let mut prev_state = None;
-            let mut static_phis = BTreeMap::new();
-            let mut last_exprs = BTreeMap::new();
-            let mut changed = true;
-            let (cond, bottom_pred, break_s) = loop {
-                let mut top_s = if let Some(ref prev_state) = prev_state {
-                    changed = false;
-                    let mut merged_s = merge_down(loop_cond_region, in_s, &prev_state, graph);
-                    for (iden, merged_expr) in merged_s.iter_mut() {
-                        if let Some(old_expr) = prev_state.get(iden)
-                            && *merged_expr != *old_expr
-                        {
-                            if let Some(last_expr) = last_exprs.insert(*iden, *merged_expr) {
-                                changed = changed || last_expr != *merged_expr;
-                            }
-
-                            if !static_phis.contains_key(iden) {
-                                let static_phi = graph.makeset();
-                                static_phis.insert(*iden, static_phi);
-                                changed = true;
-                            }
-                            *merged_expr = static_phis[&iden];
-                        }
-                    }
-                    merged_s
-                } else {
-                    in_s.clone()
-                };
-
-                if !changed {
-                    for (iden, static_phi) in static_phis {
-                        graph.merge(static_phi, last_exprs[&iden]);
-                    }
-                    top_s.set_pred(loop_cond_branch);
-                    let cond = ai_expr(cond, &top_s, graph);
-                    top_s.set_pred(loop_cond_proj_false);
-                    break (cond, prev_state.unwrap().pred(), top_s);
-                }
-
-                top_s.set_pred(loop_cond_proj_true);
-                let bottom_s = ai_block(body, &top_s, graph);
-                prev_state = Some(bottom_s);
-            };
-
-            graph.insert(Term::Region {
-                lhs: in_s.pred(),
-                rhs: bottom_pred,
-                root: loop_cond_region,
-            });
-            graph.insert(Term::Branch {
-                pred: loop_cond_region,
-                cond,
-                root: loop_cond_branch,
-            });
-            graph.insert(Term::ControlProj {
-                pred: loop_cond_branch,
-                index: 0,
-                root: loop_cond_proj_false,
-            });
-            graph.insert(Term::ControlProj {
-                pred: loop_cond_branch,
-                index: 1,
-                root: loop_cond_proj_true,
-            });
-            break_s
+            //let loop_cond_region = graph.makeset();
+            //let loop_cond_branch = graph.makeset();
+            //let loop_cond_proj_true = graph.makeset();
+            //let loop_cond_proj_false = graph.makeset();
+            //
+            //let mut prev_state = None;
+            //let mut static_phis = BTreeMap::new();
+            //let mut last_exprs = BTreeMap::new();
+            //let mut changed = true;
+            //let (cond, bottom_pred, break_s) = loop {
+            //    let mut top_s = if let Some(ref prev_state) = prev_state {
+            //        changed = false;
+            //        let mut merged_s = merge_down(loop_cond_region, in_s, &prev_state, graph);
+            //        for (iden, merged_expr) in merged_s.iter_mut() {
+            //            if let Some(old_expr) = prev_state.get(iden)
+            //                && *merged_expr != *old_expr
+            //            {
+            //                if let Some(last_expr) = last_exprs.insert(*iden, *merged_expr) {
+            //                    changed = changed || last_expr != *merged_expr;
+            //                }
+            //
+            //                if !static_phis.contains_key(iden) {
+            //                    let static_phi = graph.makeset();
+            //                    static_phis.insert(*iden, static_phi);
+            //                    changed = true;
+            //                }
+            //                *merged_expr = static_phis[&iden];
+            //            }
+            //        }
+            //        merged_s
+            //    } else {
+            //        in_s.clone()
+            //    };
+            //
+            //    if !changed {
+            //        for (iden, static_phi) in static_phis {
+            //            graph.merge(static_phi, last_exprs[&iden]);
+            //        }
+            //        top_s.set_pred(loop_cond_branch);
+            //        let cond = ai_expr(cond, &top_s, graph);
+            //        top_s.set_pred(loop_cond_proj_false);
+            //        break (cond, prev_state.unwrap().pred(), top_s);
+            //    }
+            //
+            //    top_s.set_pred(loop_cond_proj_true);
+            //    let bottom_s = ai_block(body, &top_s, graph);
+            //    prev_state = Some(bottom_s);
+            //};
+            //
+            //graph.insert(Term::Region {
+            //    lhs: in_s.pred(),
+            //    rhs: bottom_pred,
+            //    root: loop_cond_region,
+            //});
+            //graph.insert(Term::Branch {
+            //    pred: loop_cond_region,
+            //    cond,
+            //    root: loop_cond_branch,
+            //});
+            //graph.insert(Term::ControlProj {
+            //    pred: loop_cond_branch,
+            //    index: 0,
+            //    root: loop_cond_proj_false,
+            //});
+            //graph.insert(Term::ControlProj {
+            //    pred: loop_cond_branch,
+            //    index: 1,
+            //    root: loop_cond_proj_true,
+            //});
+            //break_s
+            todo!()
         }
         Return(expr) => {
-            let value = ai_expr(expr, in_s, graph);
-            let root = graph.makeset();
-            graph.insert(Term::Finish {
-                pred: in_s.pred(),
-                value,
-                root,
-            });
-            in_s.clone()
+            let mut ad = ad.clone();
+            let value = ad.interp_expr(expr);
+            ad.finish_with(value);
+            ad
         }
-    }
-}
-
-fn ai_expr(expr: &ExpressionAST<'_>, in_s: &AbstractState, graph: &mut Graph) -> ClassId {
-    use ExpressionAST::*;
-    match expr {
-        NumberLiteral(value) => {
-            graph.constant(*value)
-        }
-        Variable(iden) => *in_s.get(iden).unwrap(),
-        Add(lhs, rhs) => {
-            let lhs = ai_expr(lhs, in_s, graph);
-            let rhs = ai_expr(rhs, in_s, graph);
-            graph.add(lhs, rhs)
-        }
-        _ => todo!(),
     }
 }
 

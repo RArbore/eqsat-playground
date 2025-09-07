@@ -1,9 +1,14 @@
+use core::cell::RefCell;
 use core::mem::transmute;
+use std::collections::BTreeMap;
 
 use db::rebuild::{ENode, corebuild, rebuild_enode_table};
 use db::table::Table;
-use util::interner::StringInterner;
+use util::interner::{IdentifierId, StringInterner};
 use util::union_find::{ClassId, UnionFind};
+
+use crate::ai::AbstractDomain;
+use crate::ast::ExpressionAST;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Term {
@@ -476,6 +481,27 @@ impl Graph {
         root
     }
 
+    pub fn region(&mut self, lhs: ClassId, rhs: ClassId) -> ClassId {
+        let root = self.makeset();
+        self.insert(Term::Region { lhs, rhs, root });
+        let root = self.find(root);
+        root
+    }
+
+    pub fn finish(&mut self, pred: ClassId, value: ClassId) -> ClassId {
+        let root = self.makeset();
+        self.insert(Term::Finish { pred, value, root });
+        let root = self.find(root);
+        root
+    }
+
+    pub fn phi(&mut self, region: ClassId, lhs: ClassId, rhs: ClassId) -> ClassId {
+        let root = self.makeset();
+        self.insert(Term::Phi { region, lhs, rhs, root });
+        let root = self.find(root);
+        root
+    }
+
     pub fn rebuild(&mut self) {
         loop {
             let mut changed = false;
@@ -533,6 +559,82 @@ impl Graph {
             self.phi.dump(interner),
             self.add.dump(interner)
         )
+    }
+}
+
+#[derive(Clone)]
+pub struct SSADomain<'a> {
+    ssa_values: BTreeMap<IdentifierId, ClassId>,
+    pred: ClassId,
+    graph: &'a RefCell<Graph>,
+    returned: Option<ClassId>,
+}
+
+impl<'a> SSADomain<'a> {
+    pub fn new(graph: &'a RefCell<Graph>, start: ClassId, params: Vec<(IdentifierId, ClassId)>) -> Self {
+        Self {
+            ssa_values: params.into_iter().collect(),
+            pred: start,
+            graph,
+            returned: None,
+        }
+    }
+}
+
+impl AbstractDomain for SSADomain<'_> {
+    type Value = ClassId;
+
+    fn interp_expr(&self, expr: &ExpressionAST<'_>) -> ClassId {
+        use ExpressionAST::*;
+        match expr {
+            NumberLiteral(value) => self.graph.borrow_mut().constant(*value),
+            Variable(iden) => self.get(*iden),
+            Add(lhs, rhs) => {
+                let lhs = self.interp_expr(lhs);
+                let rhs = self.interp_expr(rhs);
+                self.graph.borrow_mut().add(lhs, rhs)
+            }
+            _ => todo!(),
+        }
+    }
+
+    fn get(&self, iden: IdentifierId) -> ClassId {
+        self.ssa_values[&iden]
+    }
+
+    fn assign(&mut self, iden: IdentifierId, val: ClassId) {
+        self.ssa_values.insert(iden, val);
+    }
+
+    fn join(&self, other: &Self) -> Self {
+        assert_ne!(self.pred, other.pred);
+        assert!(self.returned.is_none());
+        assert!(other.returned.is_none());
+        let region = self.graph.borrow_mut().region(self.pred, other.pred);
+        let mut merged = BTreeMap::new();
+        for (self_iden, self_ssa) in &self.ssa_values {
+            if let Some(other_ssa) = other.ssa_values.get(self_iden) {
+                if *self_ssa == *other_ssa {
+                    merged.insert(*self_iden, *self_ssa);
+                } else {
+                    merged.insert(*self_iden, self.graph.borrow_mut().phi(region, *self_ssa, *other_ssa));
+                }
+            }
+        }
+        Self {
+            ssa_values: merged,
+            pred: region,
+            graph: self.graph,
+            returned: None,
+        }
+    }
+
+    fn widen(&self, other: &Self) -> Self {
+        todo!()
+    }
+
+    fn finish_with(&mut self, val: ClassId) {
+        self.returned = Some(self.graph.borrow_mut().finish(self.pred, val));
     }
 }
 

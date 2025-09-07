@@ -1,0 +1,6 @@
+fn basic(x, y) {
+	if x {
+        	y = x;
+	}
+	return y;
+}
